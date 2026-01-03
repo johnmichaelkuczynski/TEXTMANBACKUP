@@ -7692,59 +7692,7 @@ Generated on: ${new Date().toLocaleString()}`;
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="block text-sm font-semibold text-blue-700 dark:text-blue-300">
-                User Prompt / Task (drag & drop text file here)
-              </label>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => document.getElementById('docgen-prompt-upload')?.click()}
-                className="text-blue-600 hover:text-blue-700"
-                data-testid="button-upload-docgen-prompt"
-              >
-                <Upload className="w-4 h-4 mr-1" />
-                Upload prompt
-              </Button>
-              <input
-                id="docgen-prompt-upload"
-                type="file"
-                accept=".txt,.doc,.docx,.pdf"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleGeneratorFileUpload(file, setDocGenPrompt);
-                }}
-              />
-            </div>
-            <div
-              className={`relative ${docGenDragOver ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900/20' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDocGenDragOver(true); }}
-              onDragLeave={() => setDocGenDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDocGenDragOver(false);
-                const file = e.dataTransfer.files[0];
-                if (file) handleGeneratorFileUpload(file, setDocGenPrompt);
-              }}
-            >
-              <Textarea
-                value={docGenPrompt}
-                onChange={(e) => setDocGenPrompt(e.target.value)}
-                placeholder="e.g., TURN THIS INTO A COHERENT 7000 WORD ESSAY"
-                className="min-h-[180px] border-blue-200 dark:border-blue-700 focus:border-blue-400"
-                data-testid="textarea-docgen-prompt"
-              />
-            </div>
-            {docGenPrompt && (
-              <div className="text-xs text-blue-600 mt-1">
-                {docGenPrompt.length} characters
-              </div>
-            )}
-          </div>
-          
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="block text-sm font-semibold text-blue-700 dark:text-blue-300">
-                Input Text (for rewrites, summaries, etc. — optional)
+                Source Document (drag & drop text file here)
               </label>
               <Button
                 variant="ghost"
@@ -7754,7 +7702,7 @@ Generated on: ${new Date().toLocaleString()}`;
                 data-testid="button-upload-docgen"
               >
                 <Upload className="w-4 h-4 mr-1" />
-                Upload source text
+                Upload document
               </Button>
               <input
                 id="docgen-file-upload"
@@ -7767,12 +7715,42 @@ Generated on: ${new Date().toLocaleString()}`;
                 }}
               />
             </div>
+            <div
+              className={`relative ${docGenDragOver ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900/20' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDocGenDragOver(true); }}
+              onDragLeave={() => setDocGenDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDocGenDragOver(false);
+                const file = e.dataTransfer.files[0];
+                if (file) handleGeneratorFileUpload(file, setDocGenInputText);
+              }}
+            >
+              <Textarea
+                value={docGenInputText}
+                onChange={(e) => setDocGenInputText(e.target.value)}
+                placeholder="Paste or upload your source document here..."
+                className="min-h-[180px] border-blue-200 dark:border-blue-700 focus:border-blue-400"
+                data-testid="textarea-docgen-input"
+              />
+            </div>
+            {docGenInputText && (
+              <div className="text-xs text-blue-600 mt-1">
+                {docGenInputText.length} characters
+              </div>
+            )}
+          </div>
+          
+          <div>
+            <label className="block text-sm font-semibold text-blue-700 dark:text-blue-300 mb-2">
+              Instructions (what to do with the document)
+            </label>
             <Textarea
-              value={docGenInputText}
-              onChange={(e) => setDocGenInputText(e.target.value)}
-              placeholder="Paste or upload your source text here..."
+              value={docGenPrompt}
+              onChange={(e) => setDocGenPrompt(e.target.value)}
+              placeholder="e.g., TURN THIS INTO A COHERENT 7000 WORD ESSAY"
               className="min-h-[80px] border-blue-200 dark:border-blue-700 focus:border-blue-400"
-              data-testid="textarea-docgen-input"
+              data-testid="textarea-docgen-prompt"
             />
           </div>
           
