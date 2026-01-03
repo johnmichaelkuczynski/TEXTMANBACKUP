@@ -479,13 +479,18 @@ export async function outlineFirstReconstruct(
   // PHASE 3: Assemble Final Document
   onProgress?.("Assembling final document...", totalSections, totalSections);
   
-  // Create the final assembled document with section headers
+  // Create the final assembled document - CLEAN OUTPUT, no decorative separators
+  // Section headers are preserved as they are part of the academic structure
   const assembledSections = outline.sections.map((section, idx) => {
     const output = sectionOutputs.find(s => s.sectionId === section.id);
-    return `${section.title.toUpperCase()}\n\n${output?.content || '[Section not reconstructed]'}`;
-  });
+    const sectionContent = output?.content || '';
+    // Only include non-empty sections
+    if (!sectionContent.trim()) return '';
+    return `${section.title}\n\n${sectionContent}`;
+  }).filter(s => s.trim().length > 0);
   
-  const reconstructedText = assembledSections.join('\n\n---\n\n');
+  // Join with clean paragraph breaks only - no decorative separators
+  const reconstructedText = assembledSections.join('\n\n');
   const outputWords = reconstructedText.trim().split(/\s+/).length;
   const timeMs = Date.now() - startTime;
   

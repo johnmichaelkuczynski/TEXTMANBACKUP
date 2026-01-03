@@ -519,50 +519,38 @@ export async function processPositionList(
 
     onProgress?.('Formatting output...', 3, 4);
 
-    // FIX #10: Cleaner output format that respects the structure
-    let output = `${'═'.repeat(55)}
-POSITION DEFENSE ANALYSIS
-${'═'.repeat(55)}
-Total Positions Submitted: ${positions.length}
-Positions Selected for Defense: ${rankedPositions.length}
-Selection Criterion: ${customInstructions || 'All positions processed'}
-${'═'.repeat(55)}
-
-`;
-
+    // CLEAN OUTPUT: Only the essay text, no metadata
+    // All meta-data (scores, categories, etc.) is logged to console only
+    console.log(`[POSITION-LIST] === DEBUG INFO (not included in output) ===`);
+    console.log(`[POSITION-LIST] Total Positions: ${positions.length}`);
+    console.log(`[POSITION-LIST] Selected: ${rankedPositions.length}`);
+    
     const byCategory: Record<string, PositionDefense[]> = {};
     for (const def of defenses) {
       const cat = def.position.category;
       if (!byCategory[cat]) byCategory[cat] = [];
       byCategory[cat].push(def);
+      console.log(`[POSITION-LIST] [${cat}] Score ${def.position.significanceScore}: "${def.position.claim.substring(0, 50)}..."`);
     }
+    
+    console.log(`[POSITION-LIST] Categories: ${Object.keys(byCategory).length}`);
+    console.log(`[POSITION-LIST] Avg Score: ${Math.round(rankedPositions.reduce((s, p) => s + p.significanceScore, 0) / rankedPositions.length)}`);
+    console.log(`[POSITION-LIST] === END DEBUG INFO ===`);
 
+    // Build clean essay output - only the actual content
+    const cleanSections: string[] = [];
+    
     for (const category of Object.keys(byCategory)) {
       const categoryDefenses = byCategory[category];
-      output += `\n${'─'.repeat(55)}
-CATEGORY: ${category.toUpperCase()}
-${'─'.repeat(55)}\n\n`;
-
+      
       for (const def of categoryDefenses) {
-        // FIX #11: Simplified output - defense already contains quoted claim if required
-        output += `POSITION (Score: ${def.position.significanceScore}/100):
-"${def.position.claim}"
-
-DEFENSE:
-${def.defense}
-
-${'─'.repeat(40)}
-
-`;
+        // Output only the defense content, nothing else
+        cleanSections.push(def.defense.trim());
       }
     }
-
-    output += `\n${'═'.repeat(55)}
-SUMMARY
-${'═'.repeat(55)}
-Categories covered: ${Object.keys(byCategory).length}
-Average significance score: ${Math.round(rankedPositions.reduce((s, p) => s + p.significanceScore, 0) / rankedPositions.length)}
-${'═'.repeat(55)}`;
+    
+    // Join all defenses with proper paragraph breaks
+    let output = cleanSections.join('\n\n');
 
     onProgress?.('Complete', 4, 4);
 
