@@ -640,14 +640,19 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
 
   // Test Strict Outline Generator Handler
   const handleGenerateOutline = async () => {
-    if (!outlinePrompt.trim()) {
+    if (!outlineInputText.trim()) {
       toast({
         title: "Error",
-        description: "Please enter a user prompt/task",
+        description: "Please provide a source document",
         variant: "destructive"
       });
       return;
     }
+    
+    // If no instructions provided, default to summarize with analysis
+    const effectivePrompt = outlinePrompt.trim() 
+      ? outlinePrompt 
+      : "Provide a concise and clear summary of this document, followed by a detailed analysis section covering key themes, insights, and implications.";
     
     setOutlineLoading(true);
     setOutlineOutput("");
@@ -657,7 +662,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: outlinePrompt,
+          prompt: effectivePrompt,
           inputText: outlineInputText,
           provider: outlineLLM
         })
@@ -690,14 +695,19 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
 
   // Full Document Generator Handler
   const handleGenerateDocument = async () => {
-    if (!docGenPrompt.trim()) {
+    if (!docGenInputText.trim()) {
       toast({
         title: "Error",
-        description: "Please enter a user prompt/task",
+        description: "Please provide a source document",
         variant: "destructive"
       });
       return;
     }
+    
+    // If no instructions provided, default to summarize with analysis
+    const effectivePrompt = docGenPrompt.trim() 
+      ? docGenPrompt 
+      : "Provide a concise and clear summary of this document, followed by a detailed analysis section covering key themes, insights, and implications.";
     
     setDocGenLoading(true);
     setDocGenOutput("");
@@ -707,7 +717,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: docGenPrompt,
+          prompt: effectivePrompt,
           inputText: docGenInputText,
           provider: docGenLLM
         })
@@ -7607,12 +7617,12 @@ Generated on: ${new Date().toLocaleString()}`;
           
           <div>
             <label className="block text-sm font-semibold text-amber-700 dark:text-amber-300 mb-2">
-              Instructions (what to do with the document)
+              Optional Instructions (leave empty for auto-summary with analysis)
             </label>
             <Textarea
               value={outlinePrompt}
               onChange={(e) => setOutlinePrompt(e.target.value)}
-              placeholder="e.g., CREATE A STRICT OUTLINE FOR THIS DOCUMENT"
+              placeholder="Optional: e.g., 'Create a strict outline' - leave empty for automatic summary with analysis"
               className="min-h-[80px] border-amber-200 dark:border-amber-700 focus:border-amber-400"
               data-testid="textarea-outline-prompt"
             />
@@ -7620,7 +7630,7 @@ Generated on: ${new Date().toLocaleString()}`;
           
           <Button
             onClick={handleGenerateOutline}
-            disabled={outlineLoading || !outlinePrompt.trim()}
+            disabled={outlineLoading || !outlineInputText.trim()}
             className="w-full py-6 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-lg"
             data-testid="button-generate-outline"
           >
@@ -7743,12 +7753,12 @@ Generated on: ${new Date().toLocaleString()}`;
           
           <div>
             <label className="block text-sm font-semibold text-blue-700 dark:text-blue-300 mb-2">
-              Instructions (what to do with the document)
+              Optional Instructions (leave empty for auto-summary with analysis)
             </label>
             <Textarea
               value={docGenPrompt}
               onChange={(e) => setDocGenPrompt(e.target.value)}
-              placeholder="e.g., TURN THIS INTO A COHERENT 7000 WORD ESSAY"
+              placeholder="Optional: e.g., 'Turn this into a 7000 word essay' - leave empty for automatic summary with analysis"
               className="min-h-[80px] border-blue-200 dark:border-blue-700 focus:border-blue-400"
               data-testid="textarea-docgen-prompt"
             />
@@ -7756,7 +7766,7 @@ Generated on: ${new Date().toLocaleString()}`;
           
           <Button
             onClick={handleGenerateDocument}
-            disabled={docGenLoading || !docGenPrompt.trim()}
+            disabled={docGenLoading || !docGenInputText.trim()}
             className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
             data-testid="button-generate-document"
           >
