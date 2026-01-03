@@ -98,19 +98,26 @@ export async function initializeCoherenceRun(
   mode: CoherenceModeType,
   initialState: CoherenceState
 ): Promise<void> {
-  await db.insert(coherenceDocuments)
-    .values({
-      documentId,
-      coherenceMode: mode,
-      globalState: initialState
-    })
-    .onConflictDoUpdate({
-      target: [coherenceDocuments.documentId, coherenceDocuments.coherenceMode],
-      set: {
-        globalState: initialState,
-        updatedAt: sql`NOW()`
-      }
-    });
+  try {
+    console.log(`[DB] Inserting coherenceDocuments, documentId: ${documentId}, mode: ${mode}`);
+    await db.insert(coherenceDocuments)
+      .values({
+        documentId,
+        coherenceMode: mode,
+        globalState: initialState
+      })
+      .onConflictDoUpdate({
+        target: [coherenceDocuments.documentId, coherenceDocuments.coherenceMode],
+        set: {
+          globalState: initialState,
+          updatedAt: sql`NOW()`
+        }
+      });
+    console.log(`[DB] Successfully inserted coherenceDocuments`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert coherenceDocuments:`, dbError.message, dbError.stack);
+    throw new Error(`Database insert failed for coherenceDocuments: ${dbError.message}`);
+  }
 }
 
 // Read current state from database
@@ -139,15 +146,21 @@ export async function updateCoherenceState(
   mode: CoherenceModeType,
   newState: CoherenceState
 ): Promise<void> {
-  await db.update(coherenceDocuments)
-    .set({
-      globalState: newState,
-      updatedAt: sql`NOW()`
-    })
-    .where(and(
-      eq(coherenceDocuments.documentId, documentId),
-      eq(coherenceDocuments.coherenceMode, mode)
-    ));
+  try {
+    console.log(`[DB] Updating coherenceDocuments state, documentId: ${documentId}, mode: ${mode}`);
+    await db.update(coherenceDocuments)
+      .set({
+        globalState: newState,
+        updatedAt: sql`NOW()`
+      })
+      .where(and(
+        eq(coherenceDocuments.documentId, documentId),
+        eq(coherenceDocuments.coherenceMode, mode)
+      ));
+    console.log(`[DB] Successfully updated coherenceDocuments state`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update coherenceDocuments state:`, dbError.message, dbError.stack);
+  }
 }
 
 // Write chunk evaluation result
@@ -159,22 +172,29 @@ export async function writeChunkEvaluation(
   evaluationResult: ChunkEvaluationResult,
   stateAfter: CoherenceState
 ): Promise<void> {
-  await db.insert(coherenceChunks)
-    .values({
-      documentId,
-      coherenceMode: mode,
-      chunkIndex,
-      chunkText,
-      evaluationResult,
-      stateAfter
-    })
-    .onConflictDoUpdate({
-      target: [coherenceChunks.documentId, coherenceChunks.coherenceMode, coherenceChunks.chunkIndex],
-      set: {
+  try {
+    console.log(`[DB] Inserting coherenceChunks, documentId: ${documentId}, mode: ${mode}, chunkIndex: ${chunkIndex}`);
+    await db.insert(coherenceChunks)
+      .values({
+        documentId,
+        coherenceMode: mode,
+        chunkIndex,
+        chunkText,
         evaluationResult,
         stateAfter
-      }
-    });
+      })
+      .onConflictDoUpdate({
+        target: [coherenceChunks.documentId, coherenceChunks.coherenceMode, coherenceChunks.chunkIndex],
+        set: {
+          evaluationResult,
+          stateAfter
+        }
+      });
+    console.log(`[DB] Successfully inserted coherenceChunks`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert coherenceChunks:`, dbError.message, dbError.stack);
+    throw new Error(`Database insert failed for coherenceChunks: ${dbError.message}`);
+  }
 }
 
 // Read all chunk evaluations for a document

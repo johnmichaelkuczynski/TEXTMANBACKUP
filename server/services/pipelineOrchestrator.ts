@@ -7,6 +7,7 @@ import {
   HCViolation, HCCheckResult, GlobalSkeleton
 } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import { safeDbInsert, safeDbUpdate, safeDbInsertRequired, safeDbUpdateRequired } from './dbHelper';
 
 const anthropic = new Anthropic();
 
@@ -72,27 +73,41 @@ export async function runFullPipeline(
   if (existingJobId) {
     jobId = existingJobId;
     // Update existing job to running status
-    await db.update(pipelineJobs).set({
-      status: 'running',
-      currentStage: 1,
-      stageStatus: 'pending',
-      updatedAt: new Date()
-    }).where(eq(pipelineJobs.id, existingJobId));
+    try {
+      console.log(`[DB] Updating existing job ${existingJobId} to running status`);
+      await db.update(pipelineJobs).set({
+        status: 'running',
+        currentStage: 1,
+        stageStatus: 'pending',
+        updatedAt: new Date()
+      }).where(eq(pipelineJobs.id, existingJobId));
+      console.log(`[DB] Successfully updated job ${existingJobId}`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update job ${existingJobId}:`, dbError.message, dbError.stack);
+      throw new Error(`Database update failed: ${dbError.message}`);
+    }
     console.log(`[Pipeline] Using existing job ${jobId}`);
   } else {
     // Create pipeline job
-    const [job] = await db.insert(pipelineJobs).values({
-      userId,
-      originalText,
-      originalWordCount: wordCount,
-      customInstructions: params.customInstructions,
-      targetAudience: params.targetAudience,
-      objective: params.objective,
-      status: 'running',
-      currentStage: 1,
-      stageStatus: 'pending'
-    }).returning();
-    jobId = job.id;
+    try {
+      console.log(`[DB] Creating new pipeline job, wordCount: ${wordCount}`);
+      const [job] = await db.insert(pipelineJobs).values({
+        userId,
+        originalText,
+        originalWordCount: wordCount,
+        customInstructions: params.customInstructions,
+        targetAudience: params.targetAudience,
+        objective: params.objective,
+        status: 'running',
+        currentStage: 1,
+        stageStatus: 'pending'
+      }).returning();
+      jobId = job.id;
+      console.log(`[DB] Successfully created job ${jobId}`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to create pipeline job:`, dbError.message, dbError.stack);
+      throw new Error(`Database insert failed: ${dbError.message}`);
+    }
     console.log(`[Pipeline] Created new job ${jobId}`);
   }
   
@@ -115,11 +130,17 @@ export async function runFullPipeline(
     console.log(`[Pipeline ${jobId}] Starting Stage 1: Reconstruction`);
     emitProgress(1, 'running', 'Starting reconstruction...');
     
-    await db.update(pipelineJobs).set({
-      currentStage: 1,
-      stageStatus: 'running',
-      stage1StartTime: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 1 start, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        currentStage: 1,
+        stageStatus: 'running',
+        stage1StartTime: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 1 start`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 1 start:`, dbError.message);
+    }
     
     const stage1Result = await runStage1Reconstruction(
       originalText,
@@ -128,13 +149,19 @@ export async function runFullPipeline(
       (msg, completed, total) => emitProgress(1, 'chunk_processing', msg, completed, total)
     );
     
-    await db.update(pipelineJobs).set({
-      reconstructionOutput: stage1Result.output,
-      reconstructionWords: countWords(stage1Result.output),
-      skeleton1: stage1Result.skeleton as any,
-      stage1EndTime: new Date(),
-      stageStatus: 'complete'
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 1 complete, jobId: ${jobId}, words: ${countWords(stage1Result.output)}`);
+      await db.update(pipelineJobs).set({
+        reconstructionOutput: stage1Result.output,
+        reconstructionWords: countWords(stage1Result.output),
+        skeleton1: stage1Result.skeleton as any,
+        stage1EndTime: new Date(),
+        stageStatus: 'complete'
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 1 complete`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 1 complete:`, dbError.message);
+    }
     
     console.log(`[Pipeline ${jobId}] Stage 1 complete: ${countWords(stage1Result.output)} words`);
     
@@ -144,11 +171,17 @@ export async function runFullPipeline(
     console.log(`[Pipeline ${jobId}] Starting Stage 2: Objections`);
     emitProgress(2, 'running', 'Starting objections generation...');
     
-    await db.update(pipelineJobs).set({
-      currentStage: 2,
-      stageStatus: 'running',
-      stage2StartTime: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 2 start, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        currentStage: 2,
+        stageStatus: 'running',
+        stage2StartTime: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 2 start`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 2 start:`, dbError.message);
+    }
     
     const stage2Result = await runStage2Objections(
       stage1Result.output,
@@ -158,26 +191,38 @@ export async function runFullPipeline(
       (msg, completed, total) => emitProgress(2, 'chunk_processing', msg, completed, total)
     );
     
-    await db.update(pipelineJobs).set({
-      objectionsOutput: stage2Result.output,
-      objectionsWords: countWords(stage2Result.output),
-      skeleton2: stage2Result.skeleton as any,
-      stage2EndTime: new Date(),
-      stageStatus: 'complete'
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 2 complete, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        objectionsOutput: stage2Result.output,
+        objectionsWords: countWords(stage2Result.output),
+        skeleton2: stage2Result.skeleton as any,
+        stage2EndTime: new Date(),
+        stageStatus: 'complete'
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 2 complete`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 2 complete:`, dbError.message);
+    }
     
     // Store individual objections
     for (const obj of stage2Result.objections) {
-      await db.insert(pipelineObjections).values({
-        jobId,
-        objectionIndex: obj.index,
-        claimTargeted: obj.claimTargeted,
-        claimLocation: obj.claimLocation,
-        objectionType: obj.type,
-        objectionText: obj.objection,
-        initialResponse: obj.response,
-        severity: obj.severity
-      });
+      try {
+        console.log(`[DB] Inserting pipelineObjections, jobId: ${jobId}, index: ${obj.index}`);
+        await db.insert(pipelineObjections).values({
+          jobId,
+          objectionIndex: obj.index,
+          claimTargeted: obj.claimTargeted,
+          claimLocation: obj.claimLocation,
+          objectionType: obj.type,
+          objectionText: obj.objection,
+          initialResponse: obj.response,
+          severity: obj.severity
+        });
+        console.log(`[DB] Successfully inserted pipelineObjections index ${obj.index}`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to insert pipelineObjections index ${obj.index}:`, dbError.message);
+      }
     }
     
     console.log(`[Pipeline ${jobId}] Stage 2 complete: ${stage2Result.objections.length} objections`);
@@ -188,11 +233,17 @@ export async function runFullPipeline(
     console.log(`[Pipeline ${jobId}] Starting Stage 3: Enhanced Responses`);
     emitProgress(3, 'running', 'Enhancing responses...');
     
-    await db.update(pipelineJobs).set({
-      currentStage: 3,
-      stageStatus: 'running',
-      stage3StartTime: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 3 start, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        currentStage: 3,
+        stageStatus: 'running',
+        stage3StartTime: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 3 start`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 3 start:`, dbError.message);
+    }
     
     const stage3Result = await runStage3Responses(
       stage2Result.output,
@@ -202,25 +253,37 @@ export async function runFullPipeline(
       (msg, completed, total) => emitProgress(3, 'chunk_processing', msg, completed, total)
     );
     
-    await db.update(pipelineJobs).set({
-      responsesOutput: stage3Result.output,
-      responsesWords: countWords(stage3Result.output),
-      skeleton3: stage3Result.skeleton as any,
-      stage3EndTime: new Date(),
-      stageStatus: 'complete'
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 3 complete, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        responsesOutput: stage3Result.output,
+        responsesWords: countWords(stage3Result.output),
+        skeleton3: stage3Result.skeleton as any,
+        stage3EndTime: new Date(),
+        stageStatus: 'complete'
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 3 complete`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 3 complete:`, dbError.message);
+    }
     
     // Update objections with enhanced responses
     for (const resp of stage3Result.responses) {
-      await db.update(pipelineObjections).set({
-        enhancedResponse: resp.enhancedResponse,
-        enhancementNotes: resp.enhancementNotes
-      }).where(
-        and(
-          eq(pipelineObjections.jobId, jobId),
-          eq(pipelineObjections.objectionIndex, resp.index)
-        )
-      );
+      try {
+        console.log(`[DB] Updating pipelineObjections enhanced response, index: ${resp.index}`);
+        await db.update(pipelineObjections).set({
+          enhancedResponse: resp.enhancedResponse,
+          enhancementNotes: resp.enhancementNotes
+        }).where(
+          and(
+            eq(pipelineObjections.jobId, jobId),
+            eq(pipelineObjections.objectionIndex, resp.index)
+          )
+        );
+        console.log(`[DB] Successfully updated pipelineObjections enhanced response index ${resp.index}`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update pipelineObjections enhanced response index ${resp.index}:`, dbError.message);
+      }
     }
     
     console.log(`[Pipeline ${jobId}] Stage 3 complete: ${stage3Result.responses.length} enhanced responses`);
@@ -231,11 +294,17 @@ export async function runFullPipeline(
     console.log(`[Pipeline ${jobId}] Starting Stage 4: Bullet-proof Version`);
     emitProgress(4, 'running', 'Creating bullet-proof version...');
     
-    await db.update(pipelineJobs).set({
-      currentStage: 4,
-      stageStatus: 'running',
-      stage4StartTime: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 4 start, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        currentStage: 4,
+        stageStatus: 'running',
+        stage4StartTime: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 4 start`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 4 start:`, dbError.message);
+    }
     
     const stage4Result = await runStage4Bulletproof(
       stage1Result.output,
@@ -249,26 +318,38 @@ export async function runFullPipeline(
       (msg, completed, total) => emitProgress(4, 'chunk_processing', msg, completed, total)
     );
     
-    await db.update(pipelineJobs).set({
-      bulletproofOutput: stage4Result.output,
-      bulletproofWords: countWords(stage4Result.output),
-      skeleton4: stage4Result.skeleton as any,
-      stage4EndTime: new Date(),
-      stageStatus: 'complete'
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs stage 4 complete, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        bulletproofOutput: stage4Result.output,
+        bulletproofWords: countWords(stage4Result.output),
+        skeleton4: stage4Result.skeleton as any,
+        stage4EndTime: new Date(),
+        stageStatus: 'complete'
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs stage 4 complete`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs stage 4 complete:`, dbError.message);
+    }
     
     // Update objection integration tracking
     for (const integration of stage4Result.integrations) {
-      await db.update(pipelineObjections).set({
-        integratedInSection: integration.section,
-        integrationStrategy: integration.strategy,
-        integrationVerified: true
-      }).where(
-        and(
-          eq(pipelineObjections.jobId, jobId),
-          eq(pipelineObjections.objectionIndex, integration.objectionIndex)
-        )
-      );
+      try {
+        console.log(`[DB] Updating pipelineObjections integration, index: ${integration.objectionIndex}`);
+        await db.update(pipelineObjections).set({
+          integratedInSection: integration.section,
+          integrationStrategy: integration.strategy,
+          integrationVerified: true
+        }).where(
+          and(
+            eq(pipelineObjections.jobId, jobId),
+            eq(pipelineObjections.objectionIndex, integration.objectionIndex)
+          )
+        );
+        console.log(`[DB] Successfully updated pipelineObjections integration index ${integration.objectionIndex}`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update pipelineObjections integration index ${integration.objectionIndex}:`, dbError.message);
+      }
     }
     
     console.log(`[Pipeline ${jobId}] Stage 4 complete: ${countWords(stage4Result.output)} words`);
@@ -281,11 +362,17 @@ export async function runFullPipeline(
     
     const hcResult = await runHorizontalCoherenceCheck(jobId);
     
-    await db.update(pipelineJobs).set({
-      hcCheckResults: hcResult as any,
-      hcViolations: hcResult.violations as any,
-      hcCheckTime: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs HC check results, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        hcCheckResults: hcResult as any,
+        hcViolations: hcResult.violations as any,
+        hcCheckTime: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs HC check results`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs HC check results:`, dbError.message);
+    }
     
     // If HC violations found, attempt repair
     if (hcResult.violations.length > 0) {
@@ -298,10 +385,16 @@ export async function runFullPipeline(
         const repairResult = await attemptHCRepair(jobId, hcResult);
         
         if (!repairResult.success) {
-          await db.update(pipelineJobs).set({
-            status: 'completed_with_warnings',
-            updatedAt: new Date()
-          }).where(eq(pipelineJobs.id, jobId));
+          try {
+            console.log(`[DB] Updating pipelineJobs status to completed_with_warnings, jobId: ${jobId}`);
+            await db.update(pipelineJobs).set({
+              status: 'completed_with_warnings',
+              updatedAt: new Date()
+            }).where(eq(pipelineJobs.id, jobId));
+            console.log(`[DB] Successfully updated pipelineJobs status`);
+          } catch (dbError: any) {
+            console.error(`[DB] FAILED to update pipelineJobs status:`, dbError.message);
+          }
         }
       }
     }
@@ -311,10 +404,16 @@ export async function runFullPipeline(
     // ══════════════════════════════════════════════════════════════════
     const finalStatus = hcResult.passed ? 'complete' : 'completed_with_warnings';
     
-    await db.update(pipelineJobs).set({
-      status: finalStatus,
-      updatedAt: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs final status: ${finalStatus}, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        status: finalStatus,
+        updatedAt: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs final status`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs final status:`, dbError.message);
+    }
     
     const totalTime = Date.now() - startTime;
     console.log(`[Pipeline ${jobId}] Complete in ${Math.round(totalTime / 1000)}s - Status: ${finalStatus}`);
@@ -334,11 +433,17 @@ export async function runFullPipeline(
   } catch (error: any) {
     console.error(`[Pipeline ${jobId}] Failed:`, error);
     
-    await db.update(pipelineJobs).set({
-      status: 'failed',
-      errorMessage: error.message,
-      updatedAt: new Date()
-    }).where(eq(pipelineJobs.id, jobId));
+    try {
+      console.log(`[DB] Updating pipelineJobs to failed status, jobId: ${jobId}`);
+      await db.update(pipelineJobs).set({
+        status: 'failed',
+        errorMessage: error.message,
+        updatedAt: new Date()
+      }).where(eq(pipelineJobs.id, jobId));
+      console.log(`[DB] Successfully updated pipelineJobs to failed status`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update pipelineJobs to failed status:`, dbError.message);
+    }
     
     emitProgress(0, 'failed', `Pipeline failed: ${error.message}`);
     
@@ -580,14 +685,20 @@ Return as JSON array:
     }
     
     // Store chunk
-    await db.insert(pipelineChunks).values({
-      jobId,
-      stage: 2,
-      chunkIndex: chunk,
-      chunkInputText: JSON.stringify(chunkClaims),
-      chunkOutputText: objResponse.content[0].type === 'text' ? objResponse.content[0].text : '',
-      status: 'completed'
-    });
+    try {
+      console.log(`[DB] Inserting pipelineChunks stage 2, chunk ${chunk}, jobId: ${jobId}`);
+      await db.insert(pipelineChunks).values({
+        jobId,
+        stage: 2,
+        chunkIndex: chunk,
+        chunkInputText: JSON.stringify(chunkClaims),
+        chunkOutputText: objResponse.content[0].type === 'text' ? objResponse.content[0].text : '',
+        status: 'completed'
+      });
+      console.log(`[DB] Successfully inserted pipelineChunks stage 2, chunk ${chunk}`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to insert pipelineChunks stage 2, chunk ${chunk}:`, dbError.message, dbError.stack);
+    }
   }
   
   onProgress('Formatting objections output...', totalChunks + 1, totalChunks + 1);
@@ -711,14 +822,20 @@ Return as JSON array:
     }
     
     // Store chunk
-    await db.insert(pipelineChunks).values({
-      jobId,
-      stage: 3,
-      chunkIndex: chunk,
-      chunkInputText: JSON.stringify(chunkObjections.map(o => ({ index: o.objectionIndex, objection: o.objectionText }))),
-      chunkOutputText: enhanceResponse.content[0].type === 'text' ? enhanceResponse.content[0].text : '',
-      status: 'completed'
-    });
+    try {
+      console.log(`[DB] Inserting pipelineChunks stage 3, chunk ${chunk}, jobId: ${jobId}`);
+      await db.insert(pipelineChunks).values({
+        jobId,
+        stage: 3,
+        chunkIndex: chunk,
+        chunkInputText: JSON.stringify(chunkObjections.map(o => ({ index: o.objectionIndex, objection: o.objectionText }))),
+        chunkOutputText: enhanceResponse.content[0].type === 'text' ? enhanceResponse.content[0].text : '',
+        status: 'completed'
+      });
+      console.log(`[DB] Successfully inserted pipelineChunks stage 3, chunk ${chunk}`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to insert pipelineChunks stage 3, chunk ${chunk}:`, dbError.message, dbError.stack);
+    }
   }
   
   onProgress('Formatting enhanced responses...', totalChunks, totalChunks);
@@ -860,15 +977,21 @@ Output ONLY the rewritten document.`;
   onProgress('Bullet-proof version complete', 3, 3);
   
   // Store chunk
-  await db.insert(pipelineChunks).values({
-    jobId,
-    stage: 4,
-    chunkIndex: 0,
-    chunkInputText: reconstructionOutput.substring(0, 5000),
-    chunkOutputText: output.substring(0, 5000),
-    actualWords: countWords(output),
-    status: 'completed'
-  });
+  try {
+    console.log(`[DB] Inserting pipelineChunks stage 4, chunk 0, jobId: ${jobId}`);
+    await db.insert(pipelineChunks).values({
+      jobId,
+      stage: 4,
+      chunkIndex: 0,
+      chunkInputText: reconstructionOutput.substring(0, 5000),
+      chunkOutputText: output.substring(0, 5000),
+      actualWords: countWords(output),
+      status: 'completed'
+    });
+    console.log(`[DB] Successfully inserted pipelineChunks stage 4, chunk 0`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert pipelineChunks stage 4:`, dbError.message, dbError.stack);
+  }
   
   return { output, skeleton: skeleton4, integrations };
 }

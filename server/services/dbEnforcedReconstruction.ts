@@ -10,6 +10,7 @@ import {
   type StitchResult
 } from "@shared/schema";
 import { eq, and, lt, asc } from "drizzle-orm";
+import { safeDbInsert, safeDbUpdate, safeDbInsertRequired, safeDbUpdateRequired } from './dbHelper';
 
 const anthropic = new Anthropic();
 const PRIMARY_MODEL = "claude-sonnet-4-5-20250929";
@@ -60,17 +61,24 @@ export async function createSession(
   const wordCount = countWords(text);
   console.log(`[DB-CC] Creating session for ${wordCount} word document`);
   
-  const [session] = await db.insert(reconstructionDocuments).values({
-    originalText: text,
-    wordCount,
-    status: 'pending',
-    customInstructions,
-    audienceParameters,
-    rigorLevel,
-  }).returning({ id: reconstructionDocuments.id });
-  
-  console.log(`[DB-CC] Session created with ID: ${session.id}`);
-  return session.id;
+  try {
+    console.log(`[DB] Inserting reconstructionDocuments, wordCount: ${wordCount}`);
+    const [session] = await db.insert(reconstructionDocuments).values({
+      originalText: text,
+      wordCount,
+      status: 'pending',
+      customInstructions,
+      audienceParameters,
+      rigorLevel,
+    }).returning({ id: reconstructionDocuments.id });
+    
+    console.log(`[DB] Successfully inserted reconstructionDocuments, id: ${session.id}`);
+    console.log(`[DB-CC] Session created with ID: ${session.id}`);
+    return session.id;
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert reconstructionDocuments:`, dbError.message, dbError.stack);
+    throw new Error(`Database insert failed for createSession: ${dbError.message}`);
+  }
 }
 
 export async function extractAndStoreSkeleton(sessionId: number): Promise<GlobalSkeleton> {
@@ -134,20 +142,33 @@ Return as JSON only. No commentary outside the JSON:
     throw new Error("Failed to parse skeleton response");
   }
   
-  await db.update(reconstructionDocuments)
-    .set({ 
-      globalSkeleton: skeleton as any,
-      status: 'skeleton_complete',
-      updatedAt: new Date()
-    })
-    .where(eq(reconstructionDocuments.id, sessionId));
+  try {
+    console.log(`[DB] Updating reconstructionDocuments with skeleton, sessionId: ${sessionId}`);
+    await db.update(reconstructionDocuments)
+      .set({ 
+        globalSkeleton: skeleton as any,
+        status: 'skeleton_complete',
+        updatedAt: new Date()
+      })
+      .where(eq(reconstructionDocuments.id, sessionId));
+    console.log(`[DB] Successfully updated reconstructionDocuments with skeleton`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionDocuments with skeleton:`, dbError.message, dbError.stack);
+    throw new Error(`Database update failed for skeleton: ${dbError.message}`);
+  }
   
-  await db.insert(reconstructionRuns).values({
-    documentId: sessionId,
-    runType: 'skeleton',
-    runOutput: skeleton as any,
-    durationMs: Date.now() - startTime
-  });
+  try {
+    console.log(`[DB] Inserting reconstructionRuns (skeleton), sessionId: ${sessionId}`);
+    await db.insert(reconstructionRuns).values({
+      documentId: sessionId,
+      runType: 'skeleton',
+      runOutput: skeleton as any,
+      durationMs: Date.now() - startTime
+    });
+    console.log(`[DB] Successfully inserted reconstructionRuns (skeleton)`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert reconstructionRuns (skeleton):`, dbError.message, dbError.stack);
+  }
   
   console.log(`[DB-CC] Skeleton written to database for session ${sessionId}`);
   console.log(`[DB-CC] Skeleton: ${skeleton.outline.length} outline items, ${skeleton.keyTerms.length} terms, ${skeleton.commitmentLedger.length} commitments`);
@@ -186,23 +207,36 @@ export async function chunkDocument(sessionId: number): Promise<number> {
   }
   
   for (let i = 0; i < chunks.length; i++) {
-    await db.insert(reconstructionChunks).values({
-      documentId: sessionId,
-      chunkIndex: i,
-      chunkInputText: chunks[i].text,
-      chunkInputWords: chunks[i].words,
-      status: 'pending'
-    });
-    console.log(`[DB-CC] Chunk ${i + 1}/${chunks.length} written to database (${chunks[i].words} words)`);
+    try {
+      console.log(`[DB] Inserting reconstructionChunks, chunk ${i}, sessionId: ${sessionId}, words: ${chunks[i].words}`);
+      await db.insert(reconstructionChunks).values({
+        documentId: sessionId,
+        chunkIndex: i,
+        chunkInputText: chunks[i].text,
+        chunkInputWords: chunks[i].words,
+        status: 'pending'
+      });
+      console.log(`[DB] Successfully inserted reconstructionChunks chunk ${i}`);
+      console.log(`[DB-CC] Chunk ${i + 1}/${chunks.length} written to database (${chunks[i].words} words)`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to insert reconstructionChunks chunk ${i}:`, dbError.message, dbError.stack);
+      throw new Error(`Database insert failed for chunk ${i}: ${dbError.message}`);
+    }
   }
   
-  await db.update(reconstructionDocuments)
-    .set({ 
-      numChunks: chunks.length,
-      status: 'chunking',
-      updatedAt: new Date()
-    })
-    .where(eq(reconstructionDocuments.id, sessionId));
+  try {
+    console.log(`[DB] Updating reconstructionDocuments with numChunks: ${chunks.length}`);
+    await db.update(reconstructionDocuments)
+      .set({ 
+        numChunks: chunks.length,
+        status: 'chunking',
+        updatedAt: new Date()
+      })
+      .where(eq(reconstructionDocuments.id, sessionId));
+    console.log(`[DB] Successfully updated reconstructionDocuments with numChunks`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionDocuments with numChunks:`, dbError.message, dbError.stack);
+  }
   
   console.log(`[DB-CC] Created ${chunks.length} chunks for session ${sessionId}`);
   return chunks.length;
@@ -274,9 +308,15 @@ export async function processChunk(
     throw new Error(`Chunk ${chunkIndex} not found for session ${sessionId}`);
   }
   
-  await db.update(reconstructionChunks)
-    .set({ status: 'processing', updatedAt: new Date() })
-    .where(eq(reconstructionChunks.id, chunk.id));
+  try {
+    console.log(`[DB] Updating reconstructionChunks to processing, chunkId: ${chunk.id}`);
+    await db.update(reconstructionChunks)
+      .set({ status: 'processing', updatedAt: new Date() })
+      .where(eq(reconstructionChunks.id, chunk.id));
+    console.log(`[DB] Successfully updated reconstructionChunks to processing`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionChunks to processing:`, dbError.message, dbError.stack);
+  }
   
   const priorDeltasSummary = priorDeltas.length > 0
     ? priorDeltas.map((d, i) => `Chunk ${i + 1}: Added claims: ${d.newClaimsIntroduced?.slice(0, 3).join('; ') || 'none'}`).join('\n')
@@ -342,29 +382,48 @@ Return JSON only:
   
   const outputWords = countWords(output);
   
-  await db.update(reconstructionChunks)
-    .set({
-      chunkOutputText: output,
-      actualWords: outputWords,
-      chunkDelta: delta as any,
-      status: 'completed',
-      updatedAt: new Date()
-    })
-    .where(eq(reconstructionChunks.id, chunk.id));
+  try {
+    console.log(`[DB] Updating reconstructionChunks with output, chunkId: ${chunk.id}, words: ${outputWords}`);
+    await db.update(reconstructionChunks)
+      .set({
+        chunkOutputText: output,
+        actualWords: outputWords,
+        chunkDelta: delta as any,
+        status: 'completed',
+        updatedAt: new Date()
+      })
+      .where(eq(reconstructionChunks.id, chunk.id));
+    console.log(`[DB] Successfully updated reconstructionChunks with output`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionChunks with output:`, dbError.message, dbError.stack);
+    throw new Error(`Database update failed for chunk output: ${dbError.message}`);
+  }
   
-  await db.insert(reconstructionRuns).values({
-    documentId: sessionId,
-    runType: 'chunk_pass',
-    chunkIndex,
-    runOutput: { output: output.slice(0, 500), delta } as any,
-    durationMs: Date.now() - chunkStartTime
-  });
+  try {
+    console.log(`[DB] Inserting reconstructionRuns (chunk_pass), sessionId: ${sessionId}, chunkIndex: ${chunkIndex}`);
+    await db.insert(reconstructionRuns).values({
+      documentId: sessionId,
+      runType: 'chunk_pass',
+      chunkIndex,
+      runOutput: { output: output.slice(0, 500), delta } as any,
+      durationMs: Date.now() - chunkStartTime
+    });
+    console.log(`[DB] Successfully inserted reconstructionRuns (chunk_pass)`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert reconstructionRuns (chunk_pass):`, dbError.message, dbError.stack);
+  }
   
   console.log(`[DB-CC] Chunk ${chunkIndex + 1}/${totalChunks} completed: ${outputWords} words written to database`);
   
-  await db.update(reconstructionDocuments)
-    .set({ currentChunk: chunkIndex + 1, updatedAt: new Date() })
-    .where(eq(reconstructionDocuments.id, sessionId));
+  try {
+    console.log(`[DB] Updating reconstructionDocuments currentChunk: ${chunkIndex + 1}`);
+    await db.update(reconstructionDocuments)
+      .set({ currentChunk: chunkIndex + 1, updatedAt: new Date() })
+      .where(eq(reconstructionDocuments.id, sessionId));
+    console.log(`[DB] Successfully updated reconstructionDocuments currentChunk`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionDocuments currentChunk:`, dbError.message, dbError.stack);
+  }
   
   if (onProgress) {
     const elapsed = startTime ? Date.now() - startTime : 0;
@@ -459,23 +518,35 @@ Return JSON only:
     console.log("[DB-CC] Stitch parsing failed");
   }
   
-  await db.insert(stitchResults).values({
-    documentId: sessionId,
-    conflicts: stitchResult.contradictions as any,
-    termDrift: stitchResult.terminologyDrift as any,
-    missingPremises: stitchResult.missingPremises as any,
-    redundancies: stitchResult.redundancies as any,
-    repairPlan: stitchResult.repairPlan as any,
-    coherenceScore,
-    finalValidation: { score: coherenceScore, timestamp: new Date().toISOString() } as any
-  });
+  try {
+    console.log(`[DB] Inserting stitchResults, sessionId: ${sessionId}, score: ${coherenceScore}`);
+    await db.insert(stitchResults).values({
+      documentId: sessionId,
+      conflicts: stitchResult.contradictions as any,
+      termDrift: stitchResult.terminologyDrift as any,
+      missingPremises: stitchResult.missingPremises as any,
+      redundancies: stitchResult.redundancies as any,
+      repairPlan: stitchResult.repairPlan as any,
+      coherenceScore,
+      finalValidation: { score: coherenceScore, timestamp: new Date().toISOString() } as any
+    });
+    console.log(`[DB] Successfully inserted stitchResults`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert stitchResults:`, dbError.message, dbError.stack);
+  }
   
-  await db.insert(reconstructionRuns).values({
-    documentId: sessionId,
-    runType: 'stitch',
-    runOutput: { result: stitchResult, score: coherenceScore } as any,
-    durationMs: Date.now() - startTime
-  });
+  try {
+    console.log(`[DB] Inserting reconstructionRuns (stitch), sessionId: ${sessionId}`);
+    await db.insert(reconstructionRuns).values({
+      documentId: sessionId,
+      runType: 'stitch',
+      runOutput: { result: stitchResult, score: coherenceScore } as any,
+      durationMs: Date.now() - startTime
+    });
+    console.log(`[DB] Successfully inserted reconstructionRuns (stitch)`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert reconstructionRuns (stitch):`, dbError.message, dbError.stack);
+  }
   
   console.log(`[DB-CC] Stitch complete for session ${sessionId}: ${coherenceScore}`);
   console.log(`[DB-CC] Issues: ${stitchResult.contradictions.length} contradictions, ${stitchResult.terminologyDrift.length} term drifts, ${stitchResult.repairPlan.length} repairs needed`);
@@ -492,14 +563,20 @@ export async function assembleOutput(sessionId: number): Promise<string> {
   const finalOutput = chunks.map(c => c.output).filter(Boolean).join('\n\n');
   const wordCount = countWords(finalOutput);
   
-  await db.update(reconstructionDocuments)
-    .set({
-      finalOutput,
-      finalWordCount: wordCount,
-      status: 'complete',
-      updatedAt: new Date()
-    })
-    .where(eq(reconstructionDocuments.id, sessionId));
+  try {
+    console.log(`[DB] Updating reconstructionDocuments with final output, sessionId: ${sessionId}, words: ${wordCount}`);
+    await db.update(reconstructionDocuments)
+      .set({
+        finalOutput,
+        finalWordCount: wordCount,
+        status: 'complete',
+        updatedAt: new Date()
+      })
+      .where(eq(reconstructionDocuments.id, sessionId));
+    console.log(`[DB] Successfully updated reconstructionDocuments with final output`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionDocuments with final output:`, dbError.message, dbError.stack);
+  }
   
   console.log(`[DB-CC] Final output assembled for session ${sessionId}: ${wordCount} words`);
   return finalOutput;

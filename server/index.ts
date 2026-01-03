@@ -5,6 +5,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { registerRoutes } from "./routes";
 import { validateEnvironmentOrExit } from "./utils/envValidation";
 import { setupWebSocketServer, cleanupOldJobs } from "./services/ccStreamingService";
+import { testDbConnection } from "./services/dbHelper";
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -62,6 +63,14 @@ app.use((req, res, next) => {
 (async () => {
   // Validate environment variables at startup
   validateEnvironmentOrExit();
+  
+  // Test database connection at startup
+  const dbConnected = await testDbConnection();
+  if (!dbConnected) {
+    console.error('[STARTUP] Database connection FAILED - inserts will not work!');
+  } else {
+    console.log('[STARTUP] Database connection verified');
+  }
   
   await registerRoutes(app);
 
