@@ -195,37 +195,52 @@ async function startStreamingJob(
   
   const chunks = smartChunk(text);
   
-  const [job] = await db.insert(reconstructionDocuments).values({
-    originalText: text,
-    wordCount,
-    status: 'pending',
-    targetMinWords: lengthConfig.targetMin,
-    targetMaxWords: lengthConfig.targetMax,
-    targetMidWords: lengthConfig.targetMid,
-    lengthRatio: lengthConfig.lengthRatio,
-    lengthMode: lengthConfig.lengthMode,
-    chunkTargetWords: lengthConfig.chunkTargetWords,
-    numChunks: chunks.length,
-    currentChunk: 0,
-    audienceParameters,
-    rigorLevel,
-    customInstructions
-  }).returning();
+  let job: any;
+  try {
+    console.log(`[DB] Inserting reconstructionDocuments, wordCount: ${wordCount}`);
+    [job] = await db.insert(reconstructionDocuments).values({
+      originalText: text,
+      wordCount,
+      status: 'pending',
+      targetMinWords: lengthConfig.targetMin,
+      targetMaxWords: lengthConfig.targetMax,
+      targetMidWords: lengthConfig.targetMid,
+      lengthRatio: lengthConfig.lengthRatio,
+      lengthMode: lengthConfig.lengthMode,
+      chunkTargetWords: lengthConfig.chunkTargetWords,
+      numChunks: chunks.length,
+      currentChunk: 0,
+      audienceParameters,
+      rigorLevel,
+      customInstructions
+    }).returning();
+    console.log(`[DB] Successfully inserted reconstructionDocuments, jobId: ${job.id}`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert reconstructionDocuments:`, dbError.message);
+    sendError(ws, `Database error: ${dbError.message}`);
+    return;
+  }
   
   for (let i = 0; i < chunks.length; i++) {
     const chunkInputWords = chunks[i].wordCount;
     const chunkTarget = Math.round(chunkInputWords * lengthConfig.lengthRatio);
     
-    await db.insert(reconstructionChunks).values({
-      documentId: job.id,
-      chunkIndex: i,
-      chunkInputText: chunks[i].text,
-      chunkInputWords: chunkInputWords,
-      targetWords: chunkTarget,
-      minWords: Math.floor(chunkTarget * 0.85),
-      maxWords: Math.ceil(chunkTarget * 1.15),
-      status: 'pending'
-    });
+    try {
+      console.log(`[DB] Inserting reconstructionChunks, chunkIndex: ${i}`);
+      await db.insert(reconstructionChunks).values({
+        documentId: job.id,
+        chunkIndex: i,
+        chunkInputText: chunks[i].text,
+        chunkInputWords: chunkInputWords,
+        targetWords: chunkTarget,
+        minWords: Math.floor(chunkTarget * 0.85),
+        maxWords: Math.ceil(chunkTarget * 1.15),
+        status: 'pending'
+      });
+      console.log(`[DB] Successfully inserted reconstructionChunks chunkIndex ${i}`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to insert reconstructionChunks chunkIndex ${i}:`, dbError.message);
+    }
   }
   
   clientConnections.set(ws, job.id);
@@ -254,9 +269,15 @@ async function processJobAsync(jobId: number): Promise<void> {
     
     broadcastProgress(jobId, 'skeleton_extraction', 'Extracting document structure...');
     
-    await db.update(reconstructionDocuments)
-      .set({ status: 'skeleton_extraction', updatedAt: new Date() })
-      .where(eq(reconstructionDocuments.id, jobId));
+    try {
+      console.log(`[DB] Updating reconstructionDocuments status to skeleton_extraction, jobId: ${jobId}`);
+      await db.update(reconstructionDocuments)
+        .set({ status: 'skeleton_extraction', updatedAt: new Date() })
+        .where(eq(reconstructionDocuments.id, jobId));
+      console.log(`[DB] Successfully updated reconstructionDocuments status`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update reconstructionDocuments status:`, dbError.message);
+    }
     
     const skeleton = await extractGlobalSkeleton(
       job.originalText,
@@ -264,9 +285,15 @@ async function processJobAsync(jobId: number): Promise<void> {
       job.rigorLevel || undefined
     );
     
-    await db.update(reconstructionDocuments)
-      .set({ globalSkeleton: skeleton, status: 'chunk_processing', updatedAt: new Date() })
-      .where(eq(reconstructionDocuments.id, jobId));
+    try {
+      console.log(`[DB] Updating reconstructionDocuments with skeleton, jobId: ${jobId}`);
+      await db.update(reconstructionDocuments)
+        .set({ globalSkeleton: skeleton, status: 'chunk_processing', updatedAt: new Date() })
+        .where(eq(reconstructionDocuments.id, jobId));
+      console.log(`[DB] Successfully updated reconstructionDocuments with skeleton`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update reconstructionDocuments with skeleton:`, dbError.message);
+    }
     
     if (activeJobs.get(jobId)?.aborted) {
       await handleAbort(jobId);
@@ -296,9 +323,15 @@ async function processJobAsync(jobId: number): Promise<void> {
         return;
       }
       
-      await db.update(reconstructionChunks)
-        .set({ status: 'processing', updatedAt: new Date() })
-        .where(eq(reconstructionChunks.id, chunk.id));
+      try {
+        console.log(`[DB] Updating reconstructionChunks status to processing, chunkId: ${chunk.id}`);
+        await db.update(reconstructionChunks)
+          .set({ status: 'processing', updatedAt: new Date() })
+          .where(eq(reconstructionChunks.id, chunk.id));
+        console.log(`[DB] Successfully updated reconstructionChunks status to processing`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update reconstructionChunks status to processing:`, dbError.message);
+      }
       
       const { outputText, delta } = await reconstructChunkConstrained(
         chunk.chunkInputText,
@@ -317,19 +350,31 @@ async function processJobAsync(jobId: number): Promise<void> {
       const isOnTarget = actualWords >= chunk.minWords! && actualWords <= chunk.maxWords!;
       const chunkStatus = isOnTarget ? 'on_target' : 'flagged';
       
-      await db.update(reconstructionChunks)
-        .set({ 
-          chunkOutputText: outputText,
-          actualWords,
-          chunkDelta: delta,
-          status: 'complete',
-          updatedAt: new Date()
-        })
-        .where(eq(reconstructionChunks.id, chunk.id));
+      try {
+        console.log(`[DB] Updating reconstructionChunks complete, chunkId: ${chunk.id}`);
+        await db.update(reconstructionChunks)
+          .set({ 
+            chunkOutputText: outputText,
+            actualWords,
+            chunkDelta: delta,
+            status: 'complete',
+            updatedAt: new Date()
+          })
+          .where(eq(reconstructionChunks.id, chunk.id));
+        console.log(`[DB] Successfully updated reconstructionChunks complete`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update reconstructionChunks complete:`, dbError.message);
+      }
       
-      await db.update(reconstructionDocuments)
-        .set({ currentChunk: chunk.chunkIndex + 1, updatedAt: new Date() })
-        .where(eq(reconstructionDocuments.id, jobId));
+      try {
+        console.log(`[DB] Updating reconstructionDocuments currentChunk, jobId: ${jobId}`);
+        await db.update(reconstructionDocuments)
+          .set({ currentChunk: chunk.chunkIndex + 1, updatedAt: new Date() })
+          .where(eq(reconstructionDocuments.id, jobId));
+        console.log(`[DB] Successfully updated reconstructionDocuments currentChunk`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update reconstructionDocuments currentChunk:`, dbError.message);
+      }
       
       const projectedFinal = Math.round(runningWordCount / (chunk.chunkIndex + 1) * job.numChunks!);
       
@@ -386,9 +431,15 @@ async function processJobAsync(jobId: number): Promise<void> {
     
     broadcastProgress(jobId, 'stitching', 'Running global consistency check...');
     
-    await db.update(reconstructionDocuments)
-      .set({ status: 'stitching', updatedAt: new Date() })
-      .where(eq(reconstructionDocuments.id, jobId));
+    try {
+      console.log(`[DB] Updating reconstructionDocuments status to stitching, jobId: ${jobId}`);
+      await db.update(reconstructionDocuments)
+        .set({ status: 'stitching', updatedAt: new Date() })
+        .where(eq(reconstructionDocuments.id, jobId));
+      console.log(`[DB] Successfully updated reconstructionDocuments status to stitching`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update reconstructionDocuments status to stitching:`, dbError.message);
+    }
     
     const completedChunks = await db.select()
       .from(reconstructionChunks)
@@ -410,15 +461,21 @@ async function processJobAsync(jobId: number): Promise<void> {
     
     const finalWordCount = countWords(finalOutput);
     
-    await db.update(reconstructionDocuments)
-      .set({ 
-        finalOutput,
-        finalWordCount,
-        validationResult: stitchResult,
-        status: 'complete',
-        updatedAt: new Date()
-      })
-      .where(eq(reconstructionDocuments.id, jobId));
+    try {
+      console.log(`[DB] Updating reconstructionDocuments with final output, jobId: ${jobId}, words: ${finalWordCount}`);
+      await db.update(reconstructionDocuments)
+        .set({ 
+          finalOutput,
+          finalWordCount,
+          validationResult: stitchResult,
+          status: 'complete',
+          updatedAt: new Date()
+        })
+        .where(eq(reconstructionDocuments.id, jobId));
+      console.log(`[DB] Successfully updated reconstructionDocuments with final output`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update reconstructionDocuments with final output:`, dbError.message);
+    }
     
     broadcastToJob(jobId, {
       type: 'job_complete',
@@ -435,9 +492,15 @@ async function processJobAsync(jobId: number): Promise<void> {
   } catch (error: any) {
     console.error(`[CC-WS] Job ${jobId} failed:`, error);
     
-    await db.update(reconstructionDocuments)
-      .set({ status: 'failed', errorMessage: error.message, updatedAt: new Date() })
-      .where(eq(reconstructionDocuments.id, jobId));
+    try {
+      console.log(`[DB] Updating reconstructionDocuments to failed status, jobId: ${jobId}`);
+      await db.update(reconstructionDocuments)
+        .set({ status: 'failed', errorMessage: error.message, updatedAt: new Date() })
+        .where(eq(reconstructionDocuments.id, jobId));
+      console.log(`[DB] Successfully updated reconstructionDocuments to failed status`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update reconstructionDocuments to failed status:`, dbError.message);
+    }
     
     broadcastToJob(jobId, {
       type: 'job_failed',
@@ -466,9 +529,15 @@ function broadcastProgress(
 }
 
 async function handleAbort(jobId: number): Promise<void> {
-  await db.update(reconstructionDocuments)
-    .set({ status: 'aborted', updatedAt: new Date() })
-    .where(eq(reconstructionDocuments.id, jobId));
+  try {
+    console.log(`[DB] Updating reconstructionDocuments to aborted status, jobId: ${jobId}`);
+    await db.update(reconstructionDocuments)
+      .set({ status: 'aborted', updatedAt: new Date() })
+      .where(eq(reconstructionDocuments.id, jobId));
+    console.log(`[DB] Successfully updated reconstructionDocuments to aborted status`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to update reconstructionDocuments to aborted status:`, dbError.message);
+  }
   
   const completedChunks = await db.select()
     .from(reconstructionChunks)

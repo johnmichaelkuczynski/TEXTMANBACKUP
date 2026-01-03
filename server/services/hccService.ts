@@ -620,26 +620,40 @@ export async function processHccDocument(
   const structure = detectDocumentStructure(text);
   console.log(`[HCC] Detected structure: ${structure.parts.length} parts`);
   
-  const [docResult] = await db.insert(hccDocuments).values({
-    userId,
-    originalText: text,
-    wordCount,
-    structureMap: structure,
-    targetMinWords: lengthConfig.targetMinWords,
-    targetMaxWords: lengthConfig.targetMaxWords,
-    lengthRatio: String(lengthConfig.lengthRatio),
-    lengthMode: lengthConfig.lengthMode,
-    customInstructions,
-    status: 'structure_detected'
-  }).returning();
+  let docResult: any;
+  try {
+    console.log(`[DB] Inserting hccDocuments, wordCount: ${wordCount}`);
+    [docResult] = await db.insert(hccDocuments).values({
+      userId,
+      originalText: text,
+      wordCount,
+      structureMap: structure,
+      targetMinWords: lengthConfig.targetMinWords,
+      targetMaxWords: lengthConfig.targetMaxWords,
+      lengthRatio: String(lengthConfig.lengthRatio),
+      lengthMode: lengthConfig.lengthMode,
+      customInstructions,
+      status: 'structure_detected'
+    }).returning();
+    console.log(`[DB] Successfully inserted hccDocuments, docId: ${docResult.id}`);
+  } catch (dbError: any) {
+    console.error(`[DB] FAILED to insert hccDocuments:`, dbError.message);
+    return { success: false, output: '', error: `Database error: ${dbError.message}` };
+  }
   
   const documentId = docResult.id;
   
   try {
     const bookSkeleton = await extractBookSkeleton(text);
-    await db.update(hccDocuments)
-      .set({ bookSkeleton, status: 'skeletons_extracted' })
-      .where(eq(hccDocuments.id, documentId));
+    try {
+      console.log(`[DB] Updating hccDocuments with skeleton, docId: ${documentId}`);
+      await db.update(hccDocuments)
+        .set({ bookSkeleton, status: 'skeletons_extracted' })
+        .where(eq(hccDocuments.id, documentId));
+      console.log(`[DB] Successfully updated hccDocuments with skeleton`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update hccDocuments with skeleton:`, dbError.message);
+    }
     
     const compressedBook = await compressSkeleton(bookSkeleton, 500);
     
@@ -649,15 +663,23 @@ export async function processHccDocument(
       const part = structure.parts[p];
       const partText = getTextByWordRange(text, part.startIndex, part.endIndex);
       
-      const [partResult] = await db.insert(hccParts).values({
-        documentId,
-        partIndex: p,
-        partTitle: part.title,
-        originalText: partText,
-        wordCount: countWords(partText),
-        compressedBookSkeleton: { compressed: compressedBook },
-        status: 'processing'
-      }).returning();
+      let partResult: any;
+      try {
+        console.log(`[DB] Inserting hccParts, partIndex: ${p}`);
+        [partResult] = await db.insert(hccParts).values({
+          documentId,
+          partIndex: p,
+          partTitle: part.title,
+          originalText: partText,
+          wordCount: countWords(partText),
+          compressedBookSkeleton: { compressed: compressedBook },
+          status: 'processing'
+        }).returning();
+        console.log(`[DB] Successfully inserted hccParts, partId: ${partResult.id}`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to insert hccParts partIndex ${p}:`, dbError.message);
+        continue;
+      }
       
       const partId = partResult.id;
       const compressedPart = compressedBook;
@@ -667,16 +689,24 @@ export async function processHccDocument(
         const chapterText = getTextByWordRange(text, chapter.startIndex, chapter.endIndex);
         const chapterWords = countWords(chapterText);
         
-        const [chapterResult] = await db.insert(hccChapters).values({
-          partId,
-          documentId,
-          chapterIndex: c,
-          chapterTitle: chapter.title,
-          originalText: chapterText,
-          wordCount: chapterWords,
-          compressedPartSkeleton: { compressed: compressedPart },
-          status: 'processing'
-        }).returning();
+        let chapterResult: any;
+        try {
+          console.log(`[DB] Inserting hccChapters, chapterIndex: ${c}`);
+          [chapterResult] = await db.insert(hccChapters).values({
+            partId,
+            documentId,
+            chapterIndex: c,
+            chapterTitle: chapter.title,
+            originalText: chapterText,
+            wordCount: chapterWords,
+            compressedPartSkeleton: { compressed: compressedPart },
+            status: 'processing'
+          }).returning();
+          console.log(`[DB] Successfully inserted hccChapters, chapterId: ${chapterResult.id}`);
+        } catch (dbError: any) {
+          console.error(`[DB] FAILED to insert hccChapters chapterIndex ${c}:`, dbError.message);
+          continue;
+        }
         
         const chapterId = chapterResult.id;
         
@@ -689,23 +719,36 @@ export async function processHccDocument(
           const chunk = chapterChunks[k];
           const chunkTargetWords = Math.round(chunk.wordCount * lengthConfig.lengthRatio);
           
-          const [chunkRecord] = await db.insert(hccChunks).values({
-            chapterId,
-            documentId,
-            chunkIndex: k,
-            chunkInputText: chunk.text,
-            chunkInputWords: chunk.wordCount,
-            targetWords: chunkTargetWords,
-            minWords: Math.round(chunkTargetWords * 0.80),
-            maxWords: Math.round(chunkTargetWords * 1.20),
-            status: 'processing'
-          }).returning();
+          let chunkRecord: any;
+          try {
+            console.log(`[DB] Inserting hccChunks, chunkIndex: ${k}`);
+            [chunkRecord] = await db.insert(hccChunks).values({
+              chapterId,
+              documentId,
+              chunkIndex: k,
+              chunkInputText: chunk.text,
+              chunkInputWords: chunk.wordCount,
+              targetWords: chunkTargetWords,
+              minWords: Math.round(chunkTargetWords * 0.80),
+              maxWords: Math.round(chunkTargetWords * 1.20),
+              status: 'processing'
+            }).returning();
+            console.log(`[DB] Successfully inserted hccChunks, chunkId: ${chunkRecord.id}`);
+          } catch (dbError: any) {
+            console.error(`[DB] FAILED to insert hccChunks chunkIndex ${k}:`, dbError.message);
+            continue;
+          }
           
           const checkpointCallback = async (chunkIdx: number, output: string) => {
-            await db.update(hccChunks)
-              .set({ chunkOutputText: output, chunkOutputWords: countWords(output), status: 'completed' })
-              .where(eq(hccChunks.id, chunkRecord.id));
-            console.log(`[HCC] Checkpoint saved for chunk ${chunkIdx}`);
+            try {
+              console.log(`[DB] Updating hccChunks checkpoint, chunkId: ${chunkRecord.id}`);
+              await db.update(hccChunks)
+                .set({ chunkOutputText: output, chunkOutputWords: countWords(output), status: 'completed' })
+                .where(eq(hccChunks.id, chunkRecord.id));
+              console.log(`[HCC] Checkpoint saved for chunk ${chunkIdx}`);
+            } catch (dbError: any) {
+              console.error(`[DB] FAILED to update hccChunks checkpoint:`, dbError.message);
+            }
           };
           
           const result = await processChunkWithLength(
@@ -729,21 +772,33 @@ export async function processHccDocument(
         
         const stitchedChapter = await stitchChapter(chapterSkeleton, processedChunks);
         
-        await db.update(hccChapters)
-          .set({ 
-            chapterOutput: stitchedChapter.output,
-            chapterDelta: stitchedChapter.delta,
-            status: 'completed'
-          })
-          .where(eq(hccChapters.id, chapterId));
+        try {
+          console.log(`[DB] Updating hccChapters complete, chapterId: ${chapterId}`);
+          await db.update(hccChapters)
+            .set({ 
+              chapterOutput: stitchedChapter.output,
+              chapterDelta: stitchedChapter.delta,
+              status: 'completed'
+            })
+            .where(eq(hccChapters.id, chapterId));
+          console.log(`[DB] Successfully updated hccChapters complete`);
+        } catch (dbError: any) {
+          console.error(`[DB] FAILED to update hccChapters complete:`, dbError.message);
+        }
         
         allChapterOutputs.push(stitchedChapter.output);
       }
       
       const partOutput = allChapterOutputs.slice(-part.chapters.length).join('\n\n');
-      await db.update(hccParts)
-        .set({ partOutput, status: 'completed' })
-        .where(eq(hccParts.id, partId));
+      try {
+        console.log(`[DB] Updating hccParts complete, partId: ${partId}`);
+        await db.update(hccParts)
+          .set({ partOutput, status: 'completed' })
+          .where(eq(hccParts.id, partId));
+        console.log(`[DB] Successfully updated hccParts complete`);
+      } catch (dbError: any) {
+        console.error(`[DB] FAILED to update hccParts complete:`, dbError.message);
+      }
     }
     
     const finalOutput = allChapterOutputs.join('\n\n');
@@ -751,9 +806,15 @@ export async function processHccDocument(
     const elapsedMs = Date.now() - startTime;
     const elapsedMinutes = (elapsedMs / 60000).toFixed(1);
     
-    await db.update(hccDocuments)
-      .set({ finalOutput, status: 'complete' })
-      .where(eq(hccDocuments.id, documentId));
+    try {
+      console.log(`[DB] Updating hccDocuments with final output, docId: ${documentId}`);
+      await db.update(hccDocuments)
+        .set({ finalOutput, status: 'complete' })
+        .where(eq(hccDocuments.id, documentId));
+      console.log(`[DB] Successfully updated hccDocuments with final output`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update hccDocuments with final output:`, dbError.message);
+    }
     
     console.log(`[HCC] ═══════════════════════════════════════════════════════════════`);
     console.log(`[HCC] HCC Processing Complete`);
@@ -771,9 +832,15 @@ export async function processHccDocument(
     const elapsedMs = Date.now() - startTime;
     console.log(`[HCC] Processing FAILED after ${(elapsedMs / 60000).toFixed(1)} minutes: ${error.message}`);
     
-    await db.update(hccDocuments)
-      .set({ status: 'failed' })
-      .where(eq(hccDocuments.id, documentId));
+    try {
+      console.log(`[DB] Updating hccDocuments to failed status, docId: ${documentId}`);
+      await db.update(hccDocuments)
+        .set({ status: 'failed' })
+        .where(eq(hccDocuments.id, documentId));
+      console.log(`[DB] Successfully updated hccDocuments to failed status`);
+    } catch (dbError: any) {
+      console.error(`[DB] FAILED to update hccDocuments to failed status:`, dbError.message);
+    }
     
     throw error;
   }
