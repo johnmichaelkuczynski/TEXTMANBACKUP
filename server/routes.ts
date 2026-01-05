@@ -3510,25 +3510,11 @@ Remember: NO markdown formatting. Use plain text with CAPS headers only.`;
         });
       }
 
-      // Call the AI model with fallback support
-      const requestedProvider = llmProvider || 'zhi2'; // Default to Anthropic Claude
-      const fallbackOrder = ['zhi2', 'zhi1', 'zhi3', 'zhi5', 'zhi4']; // Anthropic, OpenAI, DeepSeek, Grok, Perplexity
-      
-      // Build provider order: requested first, then fallbacks
-      const providerOrder = [requestedProvider, ...fallbackOrder.filter(p => p !== requestedProvider)];
-      
+      // Call the AI model (support multiple providers, default to Grok/ZHI 5)
+      const provider = llmProvider || 'zhi5'; // Default to Grok (ZHI 5)
       let output = '';
-      let lastError = '';
-      let successfulProvider = '';
       
-      console.log(`[Text Model Validator] Requested provider: ${requestedProvider}, will try fallbacks if needed`);
-      
-      for (const provider of providerOrder) {
-        if (output) break; // Already got output
-        
-        console.log(`[Text Model Validator] Trying provider: ${provider}`);
-        
-        try {
+      console.log(`[Text Model Validator] Using provider: ${provider}`);
 
       if (provider === 'zhi1') {
         // OpenAI GPT-4
@@ -3558,143 +3544,65 @@ Remember: NO markdown formatting. Use plain text with CAPS headers only.`;
         output = message.content[0].type === 'text' ? message.content[0].text : '';
       } else if (provider === 'zhi3') {
         // DeepSeek
-        console.log(`[Text Model Validator] Calling DeepSeek API...`);
-        try {
-          const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-              ],
-              max_tokens: 4096,
-              temperature: 0.7,
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[Text Model Validator] DeepSeek API error ${response.status}: ${errorText}`);
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
-          }
-          
-          const data = await response.json();
-          output = data.choices?.[0]?.message?.content || '';
-          
-          if (!output) {
-            console.error(`[Text Model Validator] DeepSeek returned empty output. Full response: ${JSON.stringify(data)}`);
-          }
-        } catch (dsError: any) {
-          console.error(`[Text Model Validator] DeepSeek API call failed:`, dsError.message);
-          throw new Error(`DeepSeek API failed: ${dsError.message}`);
-        }
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 4096,
+            temperature: 0.7,
+          }),
+        });
+        const data = await response.json();
+        output = data.choices?.[0]?.message?.content || '';
       } else if (provider === 'zhi4') {
         // Perplexity
-        console.log(`[Text Model Validator] Calling Perplexity API...`);
-        try {
-          const response = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'sonar-pro',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-              ],
-              max_tokens: 4096,
-              temperature: 0.7,
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[Text Model Validator] Perplexity API error ${response.status}: ${errorText}`);
-            throw new Error(`Perplexity API error: ${response.status} - ${errorText}`);
-          }
-          
-          const data = await response.json();
-          output = data.choices?.[0]?.message?.content || '';
-          
-          if (!output) {
-            console.error(`[Text Model Validator] Perplexity returned empty output. Full response: ${JSON.stringify(data)}`);
-          }
-        } catch (ppError: any) {
-          console.error(`[Text Model Validator] Perplexity API call failed:`, ppError.message);
-          throw new Error(`Perplexity API failed: ${ppError.message}`);
-        }
+        const response = await fetch('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'sonar-pro',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 4096,
+            temperature: 0.7,
+          }),
+        });
+        const data = await response.json();
+        output = data.choices?.[0]?.message?.content || '';
       } else {
         // Default: Grok (ZHI 5)
-        console.log(`[Text Model Validator] Calling Grok API...`);
-        try {
-          const response = await fetch('https://api.x.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'grok-3',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-              ],
-              max_tokens: 4096,
-              temperature: 0.7,
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[Text Model Validator] Grok API error ${response.status}: ${errorText}`);
-            throw new Error(`Grok API error: ${response.status} - ${errorText}`);
-          }
-          
-          const data = await response.json();
-          console.log(`[Text Model Validator] Grok API response received, has choices: ${!!data.choices}`);
-          output = data.choices?.[0]?.message?.content || '';
-          
-          if (!output) {
-            console.error(`[Text Model Validator] Grok returned empty output. Full response: ${JSON.stringify(data)}`);
-          }
-        } catch (grokError: any) {
-          console.error(`[Text Model Validator] Grok API call failed:`, grokError.message);
-          throw new Error(`Grok API failed: ${grokError.message}`);
-        }
-      }
-      
-          // If we got output, mark success
-          if (output) {
-            successfulProvider = provider;
-            console.log(`[Text Model Validator] Provider ${provider} succeeded with ${output.length} chars`);
-          } else {
-            throw new Error(`Provider ${provider} returned empty output`);
-          }
-          
-        } catch (providerError: any) {
-          lastError = providerError.message;
-          console.error(`[Text Model Validator] Provider ${provider} failed: ${lastError}`);
-          // Continue to next provider in fallback chain
-        }
-      } // end for loop
-      
-      // If no output after all providers, return error
-      if (!output) {
-        return res.status(503).json({
-          success: false,
-          message: `All AI providers failed. Last error: ${lastError}`,
-          providersAttempted: providerOrder.length
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'grok-3',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 4096,
+            temperature: 0.7,
+          }),
         });
+        const data = await response.json();
+        output = data.choices?.[0]?.message?.content || '';
       }
-      
-      console.log(`[Text Model Validator] Successfully generated output using provider: ${successfulProvider}`);
 
       // If literal truth mode is enabled, apply rule-based softening and verification
       // Note: For literal truth verification, we always use Claude for consistency
@@ -3813,7 +3721,7 @@ Be extremely strict - reject any approximations, generalizations, or unqualified
       }
 
       // Log parameters to console for diagnostics - output is clean text only
-      console.log(`[Text Model Validator] Mode: ${mode}, Provider: ${successfulProvider}`);
+      console.log(`[Text Model Validator] Mode: ${mode}, Provider: ${provider}`);
       if (fidelityLevel) console.log(`[Text Model Validator] Aggressiveness: ${fidelityLevel}`);
       if (targetDomain) console.log(`[Text Model Validator] Target Domain: ${targetDomain}`);
       if (customInstructions) console.log(`[Text Model Validator] Has custom instructions`);
