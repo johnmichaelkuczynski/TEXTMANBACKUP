@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreditBalance } from "@/components/CreditBalance";
+import neurotextLogo from "@assets/generated_images/brain_with_sunglasses_logo.png";
 
 // Reset Context
 interface ResetContextType {
@@ -193,7 +194,10 @@ function Navigation() {
     <nav className="bg-primary text-primary-foreground py-4">
       <div className="container mx-auto flex justify-between items-center">
         <div className="flex items-center gap-6">
-          <div className="font-bold text-xl">NEUROTEXT</div>
+          <div className="flex items-center gap-2">
+            <img src={neurotextLogo} alt="NEUROTEXT Logo" className="h-8 w-8 rounded-full" />
+            <span className="font-bold text-xl">NEUROTEXT</span>
+          </div>
           <a 
             href="mailto:contact@zhisystems.ai" 
             className="flex items-center gap-2 hover:underline text-sm"
