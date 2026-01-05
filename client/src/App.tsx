@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CreditBalance } from "@/components/CreditBalance";
-import neurotextLogo from "@assets/generated_images/robot_with_sunglasses_logo.png";
+import neurotextLogo from "@assets/generated_images/robot_thinker_pose_with_book.png";
 
 // Reset Context
 interface ResetContextType {
