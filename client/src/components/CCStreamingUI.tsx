@@ -154,8 +154,8 @@ export function CCStreamingUI({ text, customInstructions, onComplete, onError }:
       onError('Document too short for CC processing (minimum 500 words)');
       return;
     }
-    if (wordCount > 20000) {
-      onError('Document exceeds 20,000 word limit for CC streaming');
+    if (wordCount > 50000) {
+      onError('Document exceeds 50,000 word limit for CC streaming');
       return;
     }
 

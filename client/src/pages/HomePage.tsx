@@ -1438,11 +1438,11 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       return;
     }
     
-    // Check word limit (20000 words max for Coherence Meter)
-    if (wordCount > 20000) {
+    // Check word limit (50000 words max for Coherence Meter)
+    if (wordCount > 50000) {
       toast({
         title: "Text Too Long",
-        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words for Coherence Meter.`,
+        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words for Coherence Meter.`,
         variant: "destructive"
       });
       return;
@@ -1580,11 +1580,11 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       return;
     }
     
-    // Check word limit (20000 words max for Coherence Meter)
-    if (wordCount > 20000) {
+    // Check word limit (50000 words max for Coherence Meter)
+    if (wordCount > 50000) {
       toast({
         title: "Text Too Long",
-        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`,
+        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`,
         variant: "destructive"
       });
       return;
@@ -1679,10 +1679,10 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       return;
     }
     
-    if (wordCount > 20000) {
+    if (wordCount > 50000) {
       toast({
         title: "Text Too Long",
-        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`,
+        description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`,
         variant: "destructive"
       });
       return;
@@ -1813,8 +1813,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       toast({ title: "No Input Text", description: "Please enter text to rewrite", variant: "destructive" });
       return;
     }
-    if (wordCount > 20000) {
-      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`, variant: "destructive" });
+    if (wordCount > 50000) {
+      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`, variant: "destructive" });
       return;
     }
 
@@ -1865,8 +1865,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       toast({ title: "No Input Text", description: "Please enter text to reconstruct", variant: "destructive" });
       return;
     }
-    if (wordCount > 20000) {
-      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`, variant: "destructive" });
+    if (wordCount > 50000) {
+      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`, variant: "destructive" });
       return;
     }
 
@@ -1917,8 +1917,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       toast({ title: "No Input Text", description: "Please enter text to analyze and rewrite", variant: "destructive" });
       return;
     }
-    if (wordCount > 20000) {
-      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`, variant: "destructive" });
+    if (wordCount > 50000) {
+      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`, variant: "destructive" });
       return;
     }
 
@@ -1984,8 +1984,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
       toast({ title: "No Input Text", description: "Please enter text to analyze and reconstruct", variant: "destructive" });
       return;
     }
-    if (wordCount > 20000) {
-      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 20,000 words.`, variant: "destructive" });
+    if (wordCount > 50000) {
+      toast({ title: "Text Too Long", description: `Your text has ${wordCount.toLocaleString()} words. Maximum is 50,000 words.`, variant: "destructive" });
       return;
     }
 
@@ -5518,11 +5518,11 @@ Generated on: ${new Date().toLocaleString()}`;
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-semibold text-indigo-800 dark:text-indigo-200">
-                Input Text (20,000 word limit)
+                Input Text (50,000 word limit)
               </label>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Word Count: {coherenceInputText.trim() ? coherenceInputText.trim().split(/\s+/).length.toLocaleString() : 0} / 20,000
+                  Word Count: {coherenceInputText.trim() ? coherenceInputText.trim().split(/\s+/).length.toLocaleString() : 0} / 50,000
                 </span>
                 <label className="cursor-pointer">
                   <input
