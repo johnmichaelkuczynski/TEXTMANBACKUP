@@ -202,8 +202,8 @@ async function startStreamingJob(
 ): Promise<void> {
   const wordCount = countWords(text);
   
-  if (wordCount > 20000) {
-    sendError(ws, `Input exceeds maximum of 20,000 words (got ${wordCount})`);
+  if (wordCount > 50000) {
+    sendError(ws, `Input exceeds maximum of 50,000 words (got ${wordCount})`);
     return;
   }
   

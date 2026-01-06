@@ -2060,7 +2060,7 @@ export interface ReconstructionResult {
 }
 
 // Maximum words allowed for reconstruction (hard limit)
-const MAX_RECONSTRUCTION_WORDS = 20000;
+const MAX_RECONSTRUCTION_WORDS = 50000;
 
 export async function reconstructToMaxCoherence(
   text: string,
