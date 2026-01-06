@@ -19,6 +19,20 @@ interface ExpansionRequest {
   structure?: string[];
   constraints?: string[];
   aggressiveness?: "conservative" | "aggressive";
+  onChunk?: (chunk: StreamChunk) => void;
+}
+
+export interface StreamChunk {
+  type: 'section_complete' | 'progress' | 'outline' | 'complete';
+  sectionTitle?: string;
+  sectionContent?: string;
+  sectionIndex?: number;
+  totalSections?: number;
+  wordCount?: number;
+  totalWordCount?: number;
+  progress?: number;
+  message?: string;
+  outline?: string;
 }
 
 interface ExpansionResult {
@@ -425,7 +439,7 @@ Write the section content now (do NOT include the section title "${sectionName}"
  */
 export async function universalExpand(request: ExpansionRequest): Promise<ExpansionResult> {
   const startTime = Date.now();
-  const { text, customInstructions, aggressiveness = "aggressive" } = request;
+  const { text, customInstructions, aggressiveness = "aggressive", onChunk } = request;
   
   const inputWordCount = text.trim().split(/\s+/).length;
   console.log(`[Universal Expansion] Starting expansion of ${inputWordCount} words`);
@@ -505,9 +519,20 @@ Return a comprehensive outline that will ensure argumentative coherence across t
   const fullOutline = outlineResponse.content[0].type === 'text' ? outlineResponse.content[0].text : '';
   console.log(`[Universal Expansion] Outline generated (${fullOutline.length} chars)`);
   
+  // Stream outline if callback provided
+  if (onChunk) {
+    onChunk({
+      type: 'outline',
+      outline: fullOutline,
+      message: `Outline generated with ${structure.length} sections`,
+      totalSections: structure.length
+    });
+  }
+  
   // Generate each section
   const sections: string[] = [];
   let previousSections = "";
+  let cumulativeWordCount = 0;
   
   for (let i = 0; i < structure.length; i++) {
     const section = structure[i];
@@ -525,7 +550,27 @@ Return a comprehensive outline that will ensure argumentative coherence across t
     
     // Clean output - no decorative separators
     // Always prepend section title (LLM instructed not to include it)
-    sections.push(`${section.name}\n\n${sectionContent.trim()}`);
+    const fullSectionText = `${section.name}\n\n${sectionContent.trim()}`;
+    sections.push(fullSectionText);
+    
+    // Track word count
+    const sectionWordCount = sectionContent.trim().split(/\s+/).length;
+    cumulativeWordCount += sectionWordCount;
+    
+    // Stream section if callback provided
+    if (onChunk) {
+      onChunk({
+        type: 'section_complete',
+        sectionTitle: section.name,
+        sectionContent: fullSectionText,
+        sectionIndex: i,
+        totalSections: structure.length,
+        wordCount: sectionWordCount,
+        totalWordCount: cumulativeWordCount,
+        progress: Math.round(((i + 1) / structure.length) * 100),
+        message: `Section ${i + 1}/${structure.length} complete: ${section.name} (${sectionWordCount} words)`
+      });
+    }
     
     // Keep track of previous sections (abbreviated) for context
     previousSections += `\n\n[${section.name}]: ${sectionContent.substring(0, 500)}...`;
@@ -542,6 +587,17 @@ Return a comprehensive outline that will ensure argumentative coherence across t
   const processingTimeMs = Date.now() - startTime;
   
   console.log(`[Universal Expansion] Complete: ${inputWordCount} → ${outputWordCount} words in ${processingTimeMs}ms`);
+  
+  // Stream completion if callback provided
+  if (onChunk) {
+    onChunk({
+      type: 'complete',
+      totalSections: structure.length,
+      totalWordCount: outputWordCount,
+      progress: 100,
+      message: `Expansion complete: ${outputWordCount} words generated in ${Math.round(processingTimeMs / 1000)}s`
+    });
+  }
   
   return {
     expandedText,
