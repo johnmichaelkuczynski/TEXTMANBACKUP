@@ -2759,19 +2759,41 @@ Structural understanding is always understanding of relationships. Observational
         // PROTOCOL: User instructions are ALWAYS obeyed. No thresholds. No "simple mode".
         // Check if user has expansion instructions - if so, use universal expansion regardless of input length
         const { hasExpansionInstructions, universalExpand, parseExpansionInstructions } = await import('./services/universalExpansion');
+        const { broadcastGenerationChunk } = await import('./services/ccStreamingService');
+        
+        // Check for streaming mode
+        const streamMode = req.query.stream === 'true';
         
         if (customInstructions && hasExpansionInstructions(customInstructions)) {
           const parsedInstructions = parseExpansionInstructions(customInstructions);
           console.log(`[Universal Expansion] User requested expansion to ${parsedInstructions.targetWordCount} words`);
           console.log(`[Universal Expansion] Input: ${inputWordCount} words, following user instructions exactly`);
+          console.log(`[Universal Expansion] Stream mode: ${streamMode ? 'ENABLED' : 'disabled'}`);
           
           try {
             const aggressiveness = (fidelityLevel === 'conservative') ? 'conservative' : 'aggressive';
             
+            // Create onChunk callback for streaming if enabled
+            const onChunk = streamMode ? (chunk: any) => {
+              console.log(`[Stream] Broadcasting: ${chunk.type} - ${chunk.message || chunk.sectionTitle || 'progress'}`);
+              broadcastGenerationChunk({
+                type: chunk.type,
+                sectionTitle: chunk.sectionTitle,
+                chunkText: chunk.sectionContent,
+                sectionIndex: chunk.sectionIndex,
+                totalChunks: chunk.totalSections,
+                progress: chunk.progress,
+                stage: chunk.type,
+                wordCount: chunk.wordCount,
+                totalWordCount: chunk.totalWordCount
+              });
+            } : undefined;
+            
             const result = await universalExpand({
               text,
               customInstructions: customInstructions || '',
-              aggressiveness
+              aggressiveness,
+              onChunk
             });
             
             // Log diagnostics to console only - output is clean essay text
