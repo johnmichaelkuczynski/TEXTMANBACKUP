@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Brain, Trash2, FileEdit, Loader2, Zap, Clock, Sparkles, Download, Shield, ShieldCheck, RefreshCw, Upload, FileText, BookOpen, BarChart3, AlertCircle, FileCode, Search, Copy, CheckCircle, Target, ChevronUp, ChevronDown, MessageSquareWarning, Circle, ArrowRight, Settings, ScanText } from "lucide-react";
+import { Brain, Trash2, FileEdit, Loader2, Zap, Clock, Sparkles, Download, Shield, ShieldCheck, RefreshCw, Upload, FileText, BookOpen, BarChart3, AlertCircle, FileCode, Search, Copy, CheckCircle, Target, ChevronUp, ChevronDown, MessageSquareWarning, Circle, ArrowRight, Settings, ScanText, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { analyzeDocument, compareDocuments, checkForAI } from "@/lib/analysis";
 import { AnalysisMode, DocumentInput as DocumentInputType, AIDetectionResult, DocumentAnalysis, DocumentComparison } from "@/lib/types";
@@ -223,6 +223,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
   const [showFullSuitePanel, setShowFullSuitePanel] = useState(true);
   const [fullSuiteAdditionalInfo, setFullSuiteAdditionalInfo] = useState("");
   const [fullSuiteObjectionProofOutput, setFullSuiteObjectionProofOutput] = useState("");
+  const [fullSuitePopupOpen, setFullSuitePopupOpen] = useState(false);
   
   // Refine/Adjust Output State (word count + custom instructions)
   const [refineWordCount, setRefineWordCount] = useState<string>("");
@@ -1386,6 +1387,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
 
       // ============ COMPLETE ============
       setFullSuiteStage("complete");
+      setFullSuitePopupOpen(true); // Open the popup modal with final output
       toast({
         title: "Full Suite Complete!",
         description: "Pipeline finished: Reconstruction + Objections + Objection-Proof Version",
@@ -7893,6 +7895,86 @@ Generated on: ${new Date().toLocaleString()}`;
           }
         }}
       />
+
+      {/* Full Suite Output Popup Modal */}
+      {fullSuitePopupOpen && fullSuiteObjectionProofOutput && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" data-testid="full-suite-popup-overlay">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-2xl border-2 border-violet-400 dark:border-violet-600 max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col">
+            {/* Popup Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-violet-50 dark:bg-violet-900/30 rounded-t-lg">
+              <div className="flex items-center gap-3 flex-wrap">
+                <Badge className="bg-violet-600 text-white text-sm px-3 py-1">
+                  Full Suite Complete
+                </Badge>
+                <Badge variant="outline" className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                  {fullSuiteObjectionProofOutput.trim().split(/\s+/).length.toLocaleString()} words
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(fullSuiteObjectionProofOutput);
+                    toast({ title: "Copied!", description: "Full Suite output copied to clipboard" });
+                  }}
+                  className="border-violet-300 dark:border-violet-600"
+                  data-testid="button-copy-full-suite"
+                >
+                  <Copy className="w-4 h-4 mr-1" />
+                  Copy
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const blob = new Blob([fullSuiteObjectionProofOutput], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `full-suite-output-${new Date().toISOString().split('T')[0]}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast({ title: "Downloaded!", description: "Full Suite output saved as text file" });
+                  }}
+                  className="border-violet-300 dark:border-violet-600"
+                  data-testid="button-download-full-suite"
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setFullSuitePopupOpen(false)}
+                  data-testid="button-close-full-suite-popup"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            {/* Popup Content */}
+            <div className="flex-1 overflow-auto p-4">
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+                {fullSuiteObjectionProofOutput}
+              </pre>
+            </div>
+            {/* Popup Footer */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-lg">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <TextStats text={fullSuiteObjectionProofOutput} showAiDetect={true} variant="compact" />
+                <Button
+                  onClick={() => setFullSuitePopupOpen(false)}
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  data-testid="button-done-full-suite"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
