@@ -78,7 +78,31 @@ interface WarningMessage {
 const activeJobs = new Map<number, { aborted: boolean; startTime: number }>();
 const clientConnections = new Map<WebSocket, number | null>();
 
+// Global set for generation streaming clients (job-agnostic broadcast)
+export const generationClients = new Set<WebSocket>();
+
 let wss: WebSocketServer | null = null;
+
+// Export function to broadcast chunk to all connected generation clients
+export function broadcastGenerationChunk(message: {
+  type: string;
+  sessionId?: number;
+  chunkIndex?: number;
+  totalChunks?: number;
+  chunkText?: string;
+  sectionTitle?: string;
+  progress?: number;
+  stage?: string;
+  wordCount?: number;
+  totalWordCount?: number;
+}): void {
+  const payload = JSON.stringify(message);
+  generationClients.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    }
+  });
+}
 
 export function setupWebSocketServer(server: Server): WebSocketServer {
   wss = new WebSocketServer({ server, path: '/ws/cc-stream' });
@@ -86,6 +110,7 @@ export function setupWebSocketServer(server: Server): WebSocketServer {
   wss.on('connection', (ws: WebSocket) => {
     console.log('[CC-WS] Client connected');
     clientConnections.set(ws, null);
+    generationClients.add(ws); // Add to global generation clients for streaming
     
     ws.on('message', async (data: Buffer) => {
       try {
@@ -99,6 +124,7 @@ export function setupWebSocketServer(server: Server): WebSocketServer {
     ws.on('close', () => {
       console.log('[CC-WS] Client disconnected');
       clientConnections.delete(ws);
+      generationClients.delete(ws); // Remove from generation clients
     });
     
     ws.on('error', (error) => {
