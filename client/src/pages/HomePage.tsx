@@ -15,6 +15,7 @@ import { FictionAssessmentPopup } from "@/components/FictionAssessmentPopup";
 import { FictionComparisonModal } from "@/components/FictionComparisonModal";
 import { TextStats } from "@/components/TextStats";
 import { CCStreamingUI } from "@/components/CCStreamingUI";
+import { StreamingOutputModal } from "@/components/StreamingOutputModal";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -194,6 +195,9 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
   const [validatorMathTruthMapping, setValidatorMathTruthMapping] = useState<"make-true" | "keep-true" | "make-false">("make-true");
   const [validatorLiteralTruth, setValidatorLiteralTruth] = useState(false);
   const [validatorLLMProvider, setValidatorLLMProvider] = useState<string>("zhi5"); // Default to ZHI 5
+  
+  // Streaming Output Modal State (for real-time expansion preview)
+  const [streamingModalOpen, setStreamingModalOpen] = useState(false);
   
   // Objections Function State (standalone)
   const [objectionsOutput, setObjectionsOutput] = useState("");
@@ -772,6 +776,22 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     reader.readAsText(file);
   };
 
+  // Helper to detect expansion instructions (mirrors backend logic)
+  const hasExpansionInstructions = (instructions: string): boolean => {
+    if (!instructions) return false;
+    const expansionKeywords = [
+      /EXPAND\s*TO/i,
+      /TURN\s*(?:THIS\s*)?INTO\s*(?:A\s*)?\d/i,
+      /\d+\s*WORD\s*(?:THESIS|DISSERTATION|ESSAY)/i,
+      /MASTER'?S?\s*THESIS/i,
+      /DOCTORAL\s*(?:THESIS|DISSERTATION)/i,
+      /PHD\s*(?:THESIS|DISSERTATION)/i,
+      /WRITE\s*(?:A\s*)?\d+\s*WORDS?/i,
+      /([\d,]+(?:\.\d+)?)\s*(?:K)?\s*WORDS?\s*(?:THESIS|DISSERTATION|ESSAY|DOCUMENT|LENGTH)/i,
+    ];
+    return expansionKeywords.some(pattern => pattern.test(instructions));
+  };
+
   // Text Model Validator Handler
   const handleValidatorProcess = async (mode: "reconstruction") => {
     if (!validatorInputText.trim()) {
@@ -789,7 +809,15 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     
     // Check word count for progress messaging
     const wordCount = validatorInputText.trim().split(/\s+/).length;
-    if (wordCount >= 1200 && wordCount <= 25000) {
+    
+    // Detect if this is an expansion request for streaming
+    const isExpansionRequest = hasExpansionInstructions(validatorCustomInstructions);
+    
+    if (isExpansionRequest) {
+      // Open streaming modal for real-time preview
+      setStreamingModalOpen(true);
+      setValidatorProgress("Streaming output in real-time...");
+    } else if (wordCount >= 1200 && wordCount <= 25000) {
       setValidatorProgress("Extracting document structure (outline-first mode)...");
     } else if (wordCount > 25000) {
       setValidatorProgress("Processing large document (cross-chunk mode)...");
@@ -798,7 +826,12 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     }
 
     try {
-      const response = await fetch('/api/text-model-validator', {
+      // Add stream=true query param for expansion requests
+      const endpoint = isExpansionRequest 
+        ? '/api/text-model-validator?stream=true'
+        : '/api/text-model-validator';
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7841,6 +7874,18 @@ Generated on: ${new Date().toLocaleString()}`;
       <FictionAssessmentPopup 
         isOpen={fictionPopupOpen}
         onClose={() => setFictionPopupOpen(false)}
+      />
+
+      {/* Streaming Output Modal for real-time expansion preview */}
+      <StreamingOutputModal
+        isOpen={streamingModalOpen}
+        onClose={() => setStreamingModalOpen(false)}
+        onComplete={(finalText: string) => {
+          if (finalText) {
+            setValidatorOutput(stripMarkdown(finalText));
+            setObjectionsInputText(stripMarkdown(finalText));
+          }
+        }}
       />
     </div>
   );
