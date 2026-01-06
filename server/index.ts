@@ -8,20 +8,6 @@ import { setupWebSocketServer, cleanupOldJobs } from "./services/ccStreamingServ
 import { testDbConnection } from "./services/dbHelper";
 
 const app = express();
-
-// Global set of connected generation WebSocket clients
-const generationClients = new Set<any>();
-
-// In your existing wss.on('connection') — you already have one for /ws/cc-stream
-wss.on('connection', (ws: any) => {
-  console.log('[CC-WS] New client connected for generation streaming');
-  generationClients.add(ws);
-
-  ws.on('close', () => {
-    generationClients.delete(ws);
-    console.log('[CC-WS] Client disconnected');
-  });
-});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 

@@ -17,7 +17,7 @@ import { upload as speechUpload, processSpeechToText } from "./api/simpleSpeechT
 // HCC Service for large document processing
 import { processHccDocument, parseTargetLength, calculateLengthConfig, countWords } from "./services/hccService";
 // Note: crossChunkReconstruct is dynamically imported in the reconstruction route to avoid eager loading
-// DB-Enforced Reconstruction with SSE sapp.post('/api/text-model-validator'treaming
+// DB-Enforced Reconstruction with SSE streaming
 import { 
   shouldUseDBEnforced, 
   runFullReconstruction, 
@@ -2704,57 +2704,38 @@ Structural understanding is always understanding of relationships. Observational
 
   // Text Model Validator endpoint
   app.post("/api/text-model-validator", async (req: Request, res: Response) => {
-    const stream = req.query.stream === 'true'; // Enable with ?stream=true
-
     try {
-      const { text, mode, targetDomain, fidelityLevel, mathFramework, constraintType, rigorLevel, customInstructions, truthMapping, literalTruth, llmProvider } = req.body;
+      const { text, mode, targetDomain, fidelityLevel, mathFramework, constraintType, rigorLevel, customInstructions, truthMapping, mathTruthMapping, literalTruth, llmProvider } = req.body;
 
       if (!text || !mode) {
-        return res.status(400).json({
+        return res.status(400).json({ 
           success: false,
-          message: "Text and mode are required"
+          message: "Text and mode are required" 
         });
       }
 
-      // Your existing validation/logic here if any...
+      console.log(`Text Model Validator - Mode: ${mode}, Target Domain: ${targetDomain || 'not specified'}`);
 
-      // Call the generation with streaming callback
-      const result = await runFullReconstruction(
-        { text, mode, targetDomain, fidelityLevel, mathFramework, constraintType, rigorLevel, customInstructions, truthMapping, literalTruth, llmProvider },
-        (chunk: { content: string; section?: string; progress?: number }) => {
-          if (stream) {
-            const message = {
-              type: 'chunk',
-              content: chunk.content,
-              section: chunk.section || 'Untitled',
-              progress: chunk.progress || 0
-            };
+      // Build the prompt based on the mode
+      let systemPrompt = "";
+      let userPrompt = "";
 
-            generationClients.forEach(client => {
-              if (client.readyState === client.OPEN) {
-                client.send(JSON.stringify(message));
-              }
-            });
-          }
-        }
-      );
-
-      if (stream) {
-        // Send completion
-        generationClients.forEach(client => {
-          if (client.readyState === client.OPEN) {
-            client.send(JSON.stringify({ type: 'done', finalContent: result.output }));
-          }
-        });
-        return res.json({ success: true, streamed: true });
-      }
-
-      return res.json({ success: true, output: result.output });
-    } catch (error: any) {
-      console.error('[Abort] Error:', error);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  });
+      if (mode === "reconstruction") {
+        // Count input words for reference
+        const inputWordCount = text.trim().split(/\s+/).length;
+        
+        // Check if this is a position list (pipe-delimited format)
+        const { isPositionList, processPositionList } = await import('./services/positionListReconstruction');
+        if (isPositionList(text)) {
+          console.log(`[Position-List] Detected structured position list input`);
+          try {
+            const result = await processPositionList(text, customInstructions || '');
+            
+            if (!result.success) {
+              return res.status(500).json({
+                success: false,
+                message: result.error || 'Position list processing failed'
+              });
             }
             
             return res.json({
