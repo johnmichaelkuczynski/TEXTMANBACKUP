@@ -9,7 +9,7 @@ import {
   GlobalSkeleton,
   ChunkDelta
 } from '@shared/schema';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, lt } from 'drizzle-orm';
 import { 
   extractGlobalSkeleton, 
   smartChunk, 
@@ -77,6 +77,93 @@ interface WarningMessage {
 
 const activeJobs = new Map<number, { aborted: boolean; startTime: number }>();
 const clientConnections = new Map<WebSocket, number | null>();
+
+// ============ DATABASE-ENFORCED COHERENCE HELPERS ============
+// Load prior chunk deltas from database to maintain coherence across chunks
+async function getPriorDeltas(jobId: number, currentChunkIndex: number): Promise<ChunkDelta[]> {
+  if (currentChunkIndex === 0) {
+    console.log(`[DB-CC] First chunk (index 0) - no prior context to load`);
+    return []; // First chunk has no prior context
+  }
+  
+  const priorChunks = await db.select({ 
+    chunkDelta: reconstructionChunks.chunkDelta,
+    chunkIndex: reconstructionChunks.chunkIndex,
+    status: reconstructionChunks.status
+  })
+    .from(reconstructionChunks)
+    .where(and(
+      eq(reconstructionChunks.documentId, jobId),
+      lt(reconstructionChunks.chunkIndex, currentChunkIndex)
+    ))
+    .orderBy(asc(reconstructionChunks.chunkIndex));
+  
+  const withDeltas = priorChunks.filter(c => c.chunkDelta !== null);
+  const nullDeltas = priorChunks.filter(c => c.chunkDelta === null);
+  
+  console.log(`[DB-CC] Query for chunks 0-${currentChunkIndex - 1}: found ${priorChunks.length} rows, ${withDeltas.length} have deltas, ${nullDeltas.length} are null`);
+  
+  if (nullDeltas.length > 0) {
+    console.warn(`[DB-CC] WARNING: ${nullDeltas.length} prior chunks have null deltas (indices: ${nullDeltas.map(c => c.chunkIndex).join(', ')})`);
+  }
+  
+  const validDeltas = priorChunks
+    .map(c => c.chunkDelta as ChunkDelta)
+    .filter(Boolean);
+  
+  // Log accumulated state
+  let totalClaims = 0, totalTerms = 0;
+  validDeltas.forEach(d => {
+    totalClaims += d.newClaimsIntroduced?.length || 0;
+    totalTerms += d.termsUsed?.length || 0;
+  });
+  console.log(`[DB-CC] Accumulated coherence context: ${totalClaims} claims, ${totalTerms} terms from ${validDeltas.length} prior chunks`);
+  
+  return validDeltas;
+}
+
+// Build coherence context summary from prior deltas
+function buildPriorDeltasSummary(priorDeltas: ChunkDelta[]): string {
+  if (priorDeltas.length === 0) {
+    return 'This is the first chunk. No prior context to maintain.';
+  }
+  
+  const summaryLines: string[] = [];
+  let accumulatedClaims: string[] = [];
+  let accumulatedTerms: string[] = [];
+  let accumulatedConflicts: string[] = [];
+  
+  priorDeltas.forEach((delta, i) => {
+    const claims = delta.newClaimsIntroduced || [];
+    const terms = delta.termsUsed || [];
+    const conflicts = delta.conflictsDetected || [];
+    const additions = delta.ledgerAdditions || [];
+    
+    accumulatedClaims.push(...claims);
+    accumulatedTerms.push(...terms);
+    accumulatedConflicts.push(...conflicts.map(c => c.description));
+    
+    if (claims.length > 0 || additions.length > 0) {
+      summaryLines.push(`Chunk ${i + 1}: ${claims.slice(0, 3).join('; ') || 'no new claims'}`);
+    }
+  });
+  
+  // Deduplicate terms
+  const uniqueTerms = Array.from(new Set(accumulatedTerms));
+  
+  let summary = `=== PRIOR CHUNKS COHERENCE CONTEXT (${priorDeltas.length} chunks) ===\n`;
+  summary += `ACCUMULATED CLAIMS (you MUST NOT contradict these):\n`;
+  summary += accumulatedClaims.slice(-15).map(c => `  - ${c}`).join('\n') || '  (none yet)';
+  summary += `\n\nTERMS ALREADY USED (use consistently):\n`;
+  summary += uniqueTerms.slice(-20).join(', ') || '(none yet)';
+  
+  if (accumulatedConflicts.length > 0) {
+    summary += `\n\nPREVIOUS CONFLICTS DETECTED (avoid repeating):\n`;
+    summary += accumulatedConflicts.slice(-5).map(c => `  - ${c}`).join('\n');
+  }
+  
+  return summary;
+}
 
 // Global set for generation streaming clients (job-agnostic broadcast)
 export const generationClients = new Set<WebSocket>();
@@ -360,6 +447,11 @@ async function processJobAsync(jobId: number): Promise<void> {
         console.error(`[DB] FAILED to update reconstructionChunks status to processing:`, dbError.message);
       }
       
+      // ============ DATABASE-ENFORCED COHERENCE: Load prior deltas ============
+      const priorDeltas = await getPriorDeltas(jobId, chunk.chunkIndex);
+      const priorDeltasContext = buildPriorDeltasSummary(priorDeltas);
+      console.log(`[DB-CC] Chunk ${chunk.chunkIndex + 1}/${job.numChunks}: Loaded ${priorDeltas.length} prior deltas for coherence context`);
+      
       const { outputText, delta } = await reconstructChunkConstrained(
         chunk.chunkInputText,
         chunk.chunkIndex,
@@ -368,7 +460,8 @@ async function processJobAsync(jobId: number): Promise<void> {
         undefined,
         undefined,
         undefined,
-        lengthConfig
+        lengthConfig,
+        priorDeltasContext // NEW: Pass database-sourced coherence context
       );
       
       const actualWords = countWords(outputText);
@@ -379,6 +472,7 @@ async function processJobAsync(jobId: number): Promise<void> {
       
       try {
         console.log(`[DB] Updating reconstructionChunks complete, chunkId: ${chunk.id}`);
+        console.log(`[DB-CC] Delta to write: claims=${delta.newClaimsIntroduced?.length || 0}, terms=${delta.termsUsed?.length || 0}`);
         await db.update(reconstructionChunks)
           .set({ 
             chunkOutputText: outputText,
@@ -388,9 +482,20 @@ async function processJobAsync(jobId: number): Promise<void> {
             updatedAt: new Date()
           })
           .where(eq(reconstructionChunks.id, chunk.id));
-        console.log(`[DB] Successfully updated reconstructionChunks complete`);
+        console.log(`[DB] Successfully updated reconstructionChunks complete with delta`);
+        
+        // Verify delta was written for coherence tracking
+        const [verifyChunk] = await db.select({ chunkDelta: reconstructionChunks.chunkDelta })
+          .from(reconstructionChunks)
+          .where(eq(reconstructionChunks.id, chunk.id));
+        if (!verifyChunk?.chunkDelta) {
+          console.warn(`[DB-CC] WARNING: Chunk ${chunk.chunkIndex} delta verification failed - may affect coherence`);
+        } else {
+          console.log(`[DB-CC] Verified: Chunk ${chunk.chunkIndex} delta persisted successfully`);
+        }
       } catch (dbError: any) {
         console.error(`[DB] FAILED to update reconstructionChunks complete:`, dbError.message);
+        throw new Error(`Critical: Failed to persist chunk delta - coherence will be lost: ${dbError.message}`);
       }
       
       try {

@@ -856,6 +856,43 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Build coherence context summary from in-memory prior deltas (for non-DB-backed flows)
+function buildInMemoryPriorContext(priorDeltas: ChunkDelta[]): string {
+  if (priorDeltas.length === 0) {
+    return 'This is the first chunk. No prior context to maintain.';
+  }
+  
+  let accumulatedClaims: string[] = [];
+  let accumulatedTerms: string[] = [];
+  let accumulatedConflicts: string[] = [];
+  
+  priorDeltas.forEach((delta) => {
+    const claims = delta.newClaimsIntroduced || [];
+    const terms = delta.termsUsed || [];
+    const conflicts = delta.conflictsDetected || [];
+    
+    accumulatedClaims.push(...claims);
+    accumulatedTerms.push(...terms);
+    accumulatedConflicts.push(...conflicts.map(c => c.description));
+  });
+  
+  // Deduplicate terms
+  const uniqueTerms = Array.from(new Set(accumulatedTerms));
+  
+  let summary = `=== PRIOR CHUNKS COHERENCE CONTEXT (${priorDeltas.length} chunks) ===\n`;
+  summary += `ACCUMULATED CLAIMS (you MUST NOT contradict these):\n`;
+  summary += accumulatedClaims.slice(-15).map(c => `  - ${c}`).join('\n') || '  (none yet)';
+  summary += `\n\nTERMS ALREADY USED (use consistently):\n`;
+  summary += uniqueTerms.slice(-20).join(', ') || '(none yet)';
+  
+  if (accumulatedConflicts.length > 0) {
+    summary += `\n\nPREVIOUS CONFLICTS DETECTED (avoid repeating):\n`;
+    summary += accumulatedConflicts.slice(-5).map(c => `  - ${c}`).join('\n');
+  }
+  
+  return summary;
+}
+
 function isOutputTruncated(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
@@ -912,7 +949,8 @@ export async function reconstructChunkConstrained(
   contentAnalysis?: any,
   targetOutputWords?: number,
   onCheckpoint?: (chunkIdx: number, output: string) => Promise<void>,
-  lengthConfig?: LengthConfig
+  lengthConfig?: LengthConfig,
+  priorDeltasContext?: string // NEW: Database-sourced coherence context from prior chunks
 ): Promise<{ outputText: string; delta: ChunkDelta }> {
   const startTime = Date.now();
   const inputWords = countWords(chunkText);
@@ -959,6 +997,11 @@ export async function reconstructChunkConstrained(
     const minForAttempt = Math.round(targetForAttempt * 0.75);
     const maxForAttempt = Math.round(targetForAttempt * 1.2);
     
+    // Build prior context section if available
+    const priorContextSection = priorDeltasContext 
+      ? `\n${priorDeltasContext}\n\nYou MUST maintain consistency with claims and terms established in prior chunks.\n`
+      : '';
+
     const reconstructPrompt = `You are reconstructing chunk ${chunkIndex + 1} of ${totalChunks} of a document.
 
 *** CRITICAL OUTPUT LENGTH REQUIREMENT ***
@@ -974,7 +1017,7 @@ HARD REQUIREMENTS:
 
 ${lengthGuidance ? `${lengthGuidance}\n` : ''}${attempt > 1 ? `RETRY ATTEMPT ${attempt}: Previous output was too short or truncated. YOU MUST produce ${minForAttempt}-${maxForAttempt} words this time.` : ''}
 *** END LENGTH REQUIREMENT ***
-
+${priorContextSection}
 GLOBAL SKELETON (you MUST maintain consistency with this):
 THESIS: ${skeleton.thesis}
 
@@ -1228,6 +1271,10 @@ export async function crossChunkReconstruct(
   let totalOutputWords = 0;
   
   for (let i = 0; i < chunkBoundaries.length; i++) {
+    // Build prior deltas context from already-processed chunks (in-memory version)
+    const priorDeltas = processedChunks.map(pc => pc.delta);
+    const priorDeltasContext = buildInMemoryPriorContext(priorDeltas);
+    
     const { outputText, delta } = await reconstructChunkConstrained(
       chunkBoundaries[i].text,
       i,
@@ -1236,7 +1283,8 @@ export async function crossChunkReconstruct(
       contentAnalysis,
       undefined, // Let lengthConfig determine target
       undefined, // onCheckpoint
-      lengthConfig
+      lengthConfig,
+      priorDeltasContext // Pass accumulated coherence context
     );
     processedChunks.push({ text: outputText, delta });
     totalOutputWords += countWords(outputText);
