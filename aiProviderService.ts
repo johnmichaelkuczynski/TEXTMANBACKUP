@@ -1,4 +1,10 @@
-import OpenAI from "openai";
+The app is generating output but audit_events has 0 rows. The app is not writing to the database.
+You created the tables. You did not make the app use them.
+Find the EXACT lines of code where:
+
+LLM calls are made
+Chunks are processed
+Documents are generatedimport OpenAI from "openai";
 import Anthropic from '@anthropic-ai/sdk';
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2";
