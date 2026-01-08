@@ -1495,6 +1495,42 @@ ${externalKnowledge}`;
   });
 
   // Case assessment endpoint - REAL-TIME STREAMING
+  app.post("/api/reconstruction/start", async (req: Request, res: Response) => {
+    try {
+      const { text, title, targetWordCount } = req.body;
+      const userId = (req.user as any)?.id;
+      const project = await storage.createReconstructionProject({
+        userId,
+        title: title || "Untitled Reconstruction",
+        originalText: text,
+        targetWordCount: targetWordCount || 500,
+        status: "processing"
+      });
+      res.json(project);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/reconstruction/:id", async (req: Request, res: Response) => {
+    try {
+      const project = await storage.getReconstructionProject(parseInt(req.params.id));
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      res.json(project);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/reconstruction/:id/update", async (req: Request, res: Response) => {
+    try {
+      const project = await storage.updateReconstructionProject(parseInt(req.params.id), req.body);
+      res.json(project);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/case-assessment", async (req: Request, res: Response) => {
     try {
       const { text, provider = "zhi1", context } = req.body;

@@ -158,7 +158,7 @@ export class DatabaseStorage implements IStorage {
   async createRewriteJob(insertJob: InsertRewriteJob): Promise<RewriteJob> {
     const [job] = await db
       .insert(rewriteJobs)
-      .values(insertJob)
+      .values([insertJob])
       .returning();
     return job;
   }
