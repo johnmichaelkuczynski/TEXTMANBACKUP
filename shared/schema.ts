@@ -1089,3 +1089,183 @@ export interface HCCheckResult {
     instructions: string;
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COHERENT SESSIONS & CHUNKS - Database-enforced coherence pipeline
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const coherentSessions = pgTable("coherent_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  sessionType: text("session_type").notNull(),
+  userPrompt: text("user_prompt").notNull(),
+  status: text("status").notNull().default("pending"),
+  globalSkeleton: jsonb("global_skeleton"),
+  totalChunks: integer("total_chunks").default(0),
+  processedChunks: integer("processed_chunks").default(0),
+  targetWords: integer("target_words"),
+  actualWords: integer("actual_words"),
+  finalOutput: text("final_output"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCoherentSessionSchema = createInsertSchema(coherentSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCoherentSession = z.infer<typeof insertCoherentSessionSchema>;
+export type CoherentSession = typeof coherentSessions.$inferSelect;
+
+export const coherentChunks = pgTable("coherent_chunks", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").references(() => coherentSessions.id, { onDelete: 'cascade' }).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  chunkType: text("chunk_type").notNull(),
+  chunkInput: text("chunk_input"),
+  chunkOutput: text("chunk_output"),
+  chunkDelta: jsonb("chunk_delta"),
+  targetWords: integer("target_words"),
+  actualWords: integer("actual_words"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCoherentChunkSchema = createInsertSchema(coherentChunks).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCoherentChunk = z.infer<typeof insertCoherentChunkSchema>;
+export type CoherentChunk = typeof coherentChunks.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT LOGS - Complete audit trail for every operation
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  jobType: text("job_type").notNull(),
+  jobId: integer("job_id"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  status: text("status").default("running"),
+  finalOutputPreview: text("final_output_preview"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+export const auditLogEntries = pgTable("audit_log_entries", {
+  id: serial("id").primaryKey(),
+  auditLogId: integer("audit_log_id").references(() => auditLogs.id).notNull(),
+  sequenceNum: integer("sequence_num").notNull(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  eventType: text("event_type").notNull(),
+  eventData: jsonb("event_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAuditLogEntrySchema = createInsertSchema(auditLogEntries).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAuditLogEntry = z.infer<typeof insertAuditLogEntrySchema>;
+export type AuditLogEntry = typeof auditLogEntries.$inferSelect;
+
+// Audit event types for type safety
+export type AuditEventType = 
+  | 'db_query' 
+  | 'db_insert' 
+  | 'db_update' 
+  | 'llm_call' 
+  | 'chunk_processed' 
+  | 'skeleton_extracted' 
+  | 'stitch_pass' 
+  | 'error'
+  | 'job_started'
+  | 'job_completed';
+
+export interface AuditEventData {
+  db_query: {
+    sql: string;
+    params?: any[];
+    table: string;
+    operation: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
+    rowsReturned?: number;
+    durationMs: number;
+  };
+  db_insert: {
+    table: string;
+    rowId: number;
+    keyFields: Record<string, any>;
+    durationMs: number;
+  };
+  db_update: {
+    table: string;
+    rowId: number;
+    fieldsUpdated: string[];
+    newValues: Record<string, any>;
+    durationMs: number;
+  };
+  llm_call: {
+    model: string;
+    purpose: string;
+    chunkIndex?: number;
+    inputTokens: number;
+    outputTokens: number;
+    promptPreview: string;
+    responsePreview: string;
+    durationMs: number;
+  };
+  chunk_processed: {
+    chunkIndex: number;
+    inputWords: number;
+    outputWords: number;
+    targetWords: number;
+    withinTolerance: boolean;
+    claimsAddressed?: string[];
+    violations?: string[];
+  };
+  skeleton_extracted: {
+    claimsCount: number;
+    termsCount: number;
+    structuralRequirements: number;
+    totalTargetWords: number;
+  };
+  stitch_pass: {
+    coherenceScore: string;
+    claimsCovered: number;
+    claimsMissing: number;
+    topicViolations: number;
+    repairsNeeded: number;
+  };
+  error: {
+    errorType: string;
+    message: string;
+    context: string;
+    chunkIndex?: number;
+    willRetry: boolean;
+  };
+  job_started: {
+    jobType: string;
+    targetWords?: number;
+    inputWords?: number;
+  };
+  job_completed: {
+    jobType: string;
+    targetWords?: number;
+    actualWords?: number;
+    success: boolean;
+  };
+}
