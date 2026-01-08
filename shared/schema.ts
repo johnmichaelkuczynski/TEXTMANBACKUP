@@ -1053,6 +1053,132 @@ export interface PipelineSkeleton4 {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUDIT LOGGING TABLES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const auditEvents = pgTable("audit_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  jobId: integer("job_id"),
+  jobType: text("job_type"),
+  eventType: text("event_type").notNull(),
+  eventData: jsonb("event_data"),
+  tableName: text("table_name"),
+  rowId: integer("row_id"),
+  sqlText: text("sql_text"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export const insertAuditEventSchema = createInsertSchema(auditEvents).omit({
+  id: true,
+  timestamp: true,
+});
+
+export type InsertAuditEvent = z.infer<typeof insertAuditEventSchema>;
+export type AuditEvent = typeof auditEvents.$inferSelect;
+
+export const llmCalls = pgTable("llm_calls", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  jobId: integer("job_id"),
+  jobType: text("job_type"),
+  auditEventId: integer("audit_event_id").references(() => auditEvents.id),
+  modelName: text("model_name").notNull(),
+  provider: text("provider").notNull(),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  promptSummary: text("prompt_summary"),
+  promptFull: text("prompt_full"),
+  responseSummary: text("response_summary"),
+  responseFull: text("response_full"),
+  latencyMs: integer("latency_ms"),
+  status: text("status"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertLlmCallSchema = createInsertSchema(llmCalls).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLlmCall = z.infer<typeof insertLlmCallSchema>;
+export type LlmCall = typeof llmCalls.$inferSelect;
+
+export const chunkProcessingLogs = pgTable("chunk_processing_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  jobId: integer("job_id"),
+  jobType: text("job_type"),
+  chunkIndex: integer("chunk_index").notNull(),
+  inputWordCount: integer("input_word_count").notNull(),
+  outputWordCount: integer("output_word_count").notNull(),
+  targetWordCount: integer("target_word_count").notNull(),
+  minWordCount: integer("min_word_count"),
+  maxWordCount: integer("max_word_count"),
+  passed: boolean("passed").notNull(),
+  failureReason: text("failure_reason"),
+  retryNumber: integer("retry_number").default(0),
+  llmCallId: integer("llm_call_id").references(() => llmCalls.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertChunkProcessingLogSchema = createInsertSchema(chunkProcessingLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertChunkProcessingLog = z.infer<typeof insertChunkProcessingLogSchema>;
+export type ChunkProcessingLog = typeof chunkProcessingLogs.$inferSelect;
+
+export const lengthEnforcementLogs = pgTable("length_enforcement_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  jobId: integer("job_id").notNull(),
+  jobType: text("job_type").notNull(),
+  targetWords: integer("target_words").notNull(),
+  finalWords: integer("final_words"),
+  targetMet: boolean("target_met"),
+  iterationsRequired: integer("iterations_required"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertLengthEnforcementLogSchema = createInsertSchema(lengthEnforcementLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLengthEnforcementLog = z.infer<typeof insertLengthEnforcementLogSchema>;
+export type LengthEnforcementLog = typeof lengthEnforcementLogs.$inferSelect;
+
+export const jobHistory = pgTable("job_history", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  jobId: integer("job_id").notNull(),
+  jobType: text("job_type").notNull(),
+  jobTitle: text("job_title"),
+  inputSummary: text("input_summary"),
+  outputSummary: text("output_summary"),
+  inputWordCount: integer("input_word_count"),
+  outputWordCount: integer("output_word_count"),
+  targetWordCount: integer("target_word_count"),
+  targetMet: boolean("target_met"),
+  status: text("status").notNull(),
+  auditLogDownloadable: boolean("audit_log_downloadable").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertJobHistorySchema = createInsertSchema(jobHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertJobHistory = z.infer<typeof insertJobHistorySchema>;
+export type JobHistory = typeof jobHistory.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // HORIZONTAL COHERENCE (HC) CHECK TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
