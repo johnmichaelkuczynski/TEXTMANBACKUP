@@ -324,8 +324,14 @@ export class DatabaseStorage implements IStorage {
     const { coherenceDocuments, coherenceChunks, reconstructionProjects } = await import("@shared/schema");
     const { desc, sql } = await import("drizzle-orm");
     
-    // First, get ALL unique documentIds from coherence_chunks directly
-    // This ensures we find jobs even without parent document records
+    // Helper to extract base document ID (strips chunk index suffix like "-0", "-1", etc.)
+    const getBaseDocId = (docId: string): string => {
+      // Pattern: ue-TIMESTAMP-CHUNKINDEX -> extract ue-TIMESTAMP
+      const match = docId.match(/^(ue-\d+)-\d+$/);
+      return match ? match[1] : docId;
+    };
+    
+    // First, get ALL chunks from coherence_chunks directly
     const allChunks = await db
       .select({
         documentId: coherenceChunks.documentId,
@@ -340,13 +346,14 @@ export class DatabaseStorage implements IStorage {
     // Define chunk type
     type ChunkRow = { documentId: string; coherenceMode: string; chunkIndex: number; chunkText: string | null; createdAt: Date; };
     
-    // Group chunks by documentId
-    const chunksByDocId: Record<string, ChunkRow[]> = {};
+    // Group chunks by BASE documentId (stripping the chunk index suffix)
+    const chunksByBaseDocId: Record<string, ChunkRow[]> = {};
     for (const chunk of allChunks) {
-      if (!chunksByDocId[chunk.documentId]) {
-        chunksByDocId[chunk.documentId] = [];
+      const baseDocId = getBaseDocId(chunk.documentId);
+      if (!chunksByBaseDocId[baseDocId]) {
+        chunksByBaseDocId[baseDocId] = [];
       }
-      chunksByDocId[chunk.documentId].push(chunk);
+      chunksByBaseDocId[baseDocId].push(chunk);
     }
     
     // Get coherence documents for additional metadata
@@ -363,15 +370,18 @@ export class DatabaseStorage implements IStorage {
     
     const docsByDocId: Record<string, typeof coherenceDocs[0]> = {};
     for (const doc of coherenceDocs) {
+      // Also index by base doc ID for parent lookup
+      const baseDocId = getBaseDocId(doc.documentId);
       docsByDocId[doc.documentId] = doc;
+      docsByDocId[baseDocId] = doc;
     }
     
-    // Build jobs from chunks - this captures ALL jobs including orphan chunks
+    // Build jobs from chunks grouped by base document ID - this captures ALL jobs
     const coherenceJobs: any[] = [];
     
-    for (const documentId of Object.keys(chunksByDocId)) {
-      const chunks = chunksByDocId[documentId];
-      const parentDoc = docsByDocId[documentId];
+    for (const baseDocId of Object.keys(chunksByBaseDocId)) {
+      const chunks = chunksByBaseDocId[baseDocId];
+      const parentDoc = docsByDocId[baseDocId];
       const lastChunkTime = Math.max(...chunks.map((c: ChunkRow) => new Date(c.createdAt).getTime()));
       const firstChunkTime = Math.min(...chunks.map((c: ChunkRow) => new Date(c.createdAt).getTime()));
       const timeSinceLastActivity = Date.now() - lastChunkTime;
@@ -387,13 +397,13 @@ export class DatabaseStorage implements IStorage {
       
       coherenceJobs.push({
         id: parentDoc?.id || 0,
-        documentId,
+        documentId: baseDocId,  // Use base doc ID for the job
         coherenceMode: parentDoc?.coherenceMode || chunks[0]?.coherenceMode || 'unknown',
         globalState: parentDoc?.globalState || {},
         createdAt: parentDoc?.createdAt || new Date(firstChunkTime),
         updatedAt: parentDoc?.updatedAt || new Date(lastChunkTime),
         type: 'coherence',
-        chunkCount: chunks.length,
+        chunkCount: chunks.length,  // Now correctly counts all chunks for this job
         status,
         lastActivity: new Date(lastChunkTime),
       });
@@ -425,19 +435,44 @@ export class DatabaseStorage implements IStorage {
 
   async getJobWithChunks(documentId: string): Promise<{ document: any; chunks: any[] } | null> {
     const { coherenceDocuments, coherenceChunks } = await import("@shared/schema");
+    const { like } = await import("drizzle-orm");
     
-    // First, get chunks - they may exist without a parent document
-    const chunks = await db
-      .select()
-      .from(coherenceChunks)
-      .where(eq(coherenceChunks.documentId, documentId))
-      .orderBy(coherenceChunks.chunkIndex);
+    // Handle base doc ID pattern - chunks have documentId like "ue-TIMESTAMP-CHUNKINDEX"
+    // If documentId is a base ID (like "ue-1767891554531"), find all chunks that match the pattern
+    const isBaseDocId = /^ue-\d+$/.test(documentId);
     
-    // Get parent document if it exists
-    const [document] = await db
+    let chunks: any[];
+    if (isBaseDocId) {
+      // Fetch all chunks that start with this base document ID
+      chunks = await db
+        .select()
+        .from(coherenceChunks)
+        .where(like(coherenceChunks.documentId, `${documentId}-%`))
+        .orderBy(coherenceChunks.chunkIndex);
+    } else {
+      // Try exact match first
+      chunks = await db
+        .select()
+        .from(coherenceChunks)
+        .where(eq(coherenceChunks.documentId, documentId))
+        .orderBy(coherenceChunks.chunkIndex);
+    }
+    
+    // Get parent document if it exists (try both base and exact ID)
+    let document = await db
       .select()
       .from(coherenceDocuments)
-      .where(eq(coherenceDocuments.documentId, documentId));
+      .where(eq(coherenceDocuments.documentId, documentId))
+      .then(rows => rows[0]);
+    
+    if (!document && isBaseDocId) {
+      // Try to find by like pattern
+      document = await db
+        .select()
+        .from(coherenceDocuments)
+        .where(like(coherenceDocuments.documentId, `${documentId}%`))
+        .then(rows => rows[0]);
+    }
     
     // If no chunks exist, this job doesn't exist
     if (chunks.length === 0 && !document) return null;
@@ -457,6 +492,18 @@ export class DatabaseStorage implements IStorage {
 
   async getJobChunks(documentId: string): Promise<any[]> {
     const { coherenceChunks } = await import("@shared/schema");
+    const { like } = await import("drizzle-orm");
+    
+    // Handle base doc ID pattern - chunks have documentId like "ue-TIMESTAMP-CHUNKINDEX"
+    const isBaseDocId = /^ue-\d+$/.test(documentId);
+    
+    if (isBaseDocId) {
+      return await db
+        .select()
+        .from(coherenceChunks)
+        .where(like(coherenceChunks.documentId, `${documentId}-%`))
+        .orderBy(coherenceChunks.chunkIndex);
+    }
     
     return await db
       .select()

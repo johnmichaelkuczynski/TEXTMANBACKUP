@@ -1625,12 +1625,23 @@ ${externalKnowledge}`;
       
       console.log(`[Resume] Resuming job ${documentId} from chunk ${lastChunkIndex + 1}, originalText length: ${originalText.length}`);
       
+      // Include saved chunks in globalState for use by rewrite function
+      const enhancedGlobalState = {
+        ...globalState,
+        savedChunks: sortedChunks.map(c => ({
+          chunkIndex: c.chunkIndex,
+          chunkText: c.chunkText,
+        })),
+        gco: (globalState as any)?.gco,
+        gcs: (globalState as any)?.gcs,
+      };
+      
       res.json({
         success: true,
         documentId,
         resumeFromChunk: lastChunkIndex + 1,
         existingChunks: chunks.length,
-        globalState,
+        globalState: enhancedGlobalState, // Now includes savedChunks
         coherenceMode: document.coherenceMode,
         originalText: originalText, // Include reconstructed original text
         stitchedDocument: stitchedDocument, // Include stitched output if available
@@ -4896,13 +4907,27 @@ Respond with ONLY the coherence type (e.g., "logical-consistency" or "scientific
   // Global Coherence Analysis - Uses GCO for cross-chunk coherence preservation
   app.post("/api/coherence-global", async (req: Request, res: Response) => {
     try {
-      const { text, coherenceType, mode, aggressiveness = "moderate" } = req.body;
+      const { 
+        text, 
+        coherenceType, 
+        mode, 
+        aggressiveness = "moderate",
+        documentId,
+        resumeFromChunk,
+        globalState,
+        existingChunks 
+      } = req.body;
 
       if (!text || !coherenceType || !mode) {
         return res.status(400).json({
           success: false,
           message: "Text, coherenceType, and mode are required"
         });
+      }
+      
+      // Log resume attempt
+      if (documentId && resumeFromChunk !== undefined) {
+        console.log(`[Resume] Resuming job ${documentId} from chunk ${resumeFromChunk}, existing chunks: ${existingChunks}`);
       }
 
       const wordCount = text.trim().split(/\s+/).length;
@@ -4969,10 +4994,19 @@ Respond with ONLY the coherence type (e.g., "logical-consistency"). No explanati
           wasAutoDetected: coherenceType === "auto-detect"
         });
       } else if (mode === "rewrite") {
+        // Pass resume options if provided
+        const resumeOptions = documentId && resumeFromChunk !== undefined ? {
+          documentId,
+          resumeFromChunk,
+          globalState,
+          existingChunks
+        } : undefined;
+        
         const result = await rewriteWithGlobalCoherence(
           text, 
           appliedCoherenceType, 
-          aggressiveness as "conservative" | "moderate" | "aggressive"
+          aggressiveness as "conservative" | "moderate" | "aggressive",
+          resumeOptions
         );
         
         res.json({

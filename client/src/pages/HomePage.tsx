@@ -1812,15 +1812,27 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
         });
       }
       
+      // Include resume data if available
+      const requestBody: any = {
+        text: coherenceInputText,
+        coherenceType,
+        mode: "rewrite",
+        aggressiveness: coherenceAggressiveness
+      };
+      
+      // If resuming, pass the resume parameters
+      if (resumeJobData) {
+        requestBody.documentId = resumeJobData.documentId;
+        requestBody.resumeFromChunk = resumeJobData.resumeFromChunk;
+        requestBody.globalState = resumeJobData.globalState;
+        requestBody.existingChunks = resumeJobData.existingChunks;
+        console.log(`[Resume] Resuming job ${resumeJobData.documentId} from chunk ${resumeJobData.resumeFromChunk}`);
+      }
+      
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: coherenceInputText,
-          coherenceType,
-          mode: "rewrite",
-          aggressiveness: coherenceAggressiveness
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {

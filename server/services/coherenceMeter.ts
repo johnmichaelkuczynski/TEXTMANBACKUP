@@ -1349,6 +1349,12 @@ export async function rewriteWithGlobalCoherence(
   fullText: string,
   coherenceMode: string,
   aggressiveness: "conservative" | "moderate" | "aggressive" = "moderate",
+  resumeOptions?: {
+    documentId: string;
+    resumeFromChunk: number;
+    globalState: any;
+    existingChunks: number;
+  },
   wordsPerChunk: number = 400
 ): Promise<{ rewrittenText: string; gco: GlobalContextObject; changes: string }> {
   
@@ -1364,9 +1370,17 @@ export async function rewriteWithGlobalCoherence(
     chunks.push(words.slice(i, i + wordsPerChunk).join(' '));
   }
 
-  // Extract GCO first
+  // Handle resume - determine which chunks to skip
+  const startFromChunk = resumeOptions?.resumeFromChunk || 0;
+  if (startFromChunk > 0) {
+    console.log(`[Resume] Starting from chunk ${startFromChunk}, skipping ${startFromChunk} already processed chunks`);
+  }
+
+  // Extract GCO first (or use existing if resuming)
   console.log("Extracting Global Context Object for rewrite...");
-  const gco = await extractGlobalContextObject(fullText);
+  const gco = resumeOptions?.globalState?.gco 
+    ? resumeOptions.globalState.gco 
+    : await extractGlobalContextObject(fullText);
   
   // Validate GCO was extracted successfully
   if (!gco.coreTopics.length && !gco.centralFramework && !gco.keyConcepts.length) {
@@ -1416,15 +1430,37 @@ GLOBAL CONTEXT OBJECT (MUST BE PRESERVED AND REFERENCED):
 - Mathematical Assumptions: ${gco.mathematicalAssumptions || "None identified"}`;
 
   // Initialize Global Coherence State (GCS) for ALL modes
-  let gcs = initializeGCS(normalizedMode, gco);
-  console.log(`Initialized Global Coherence State for rewrite (mode: ${normalizedMode})`);
+  // Use saved state if resuming, otherwise initialize fresh
+  let gcs = resumeOptions?.globalState?.gcs 
+    ? resumeOptions.globalState.gcs 
+    : initializeGCS(normalizedMode, gco);
+  console.log(`Initialized Global Coherence State for rewrite (mode: ${normalizedMode})${startFromChunk > 0 ? ` (resuming from chunk ${startFromChunk})` : ''}`);
 
   // Rewrite each chunk with GCS state tracking for ALL modes
   console.log(`Rewriting ${chunks.length} chunks with GCS state preservation (mode: ${normalizedMode})...`);
   const rewrittenChunks: string[] = [];
   const allChanges: string[] = [];
   
-  for (let i = 0; i < chunks.length; i++) {
+  // When resuming, we need to include already processed chunks in the output
+  // Use the saved rewritten chunks from the database (passed via resumeOptions.globalState.savedChunks)
+  if (startFromChunk > 0 && resumeOptions?.globalState?.savedChunks) {
+    // Add previously rewritten chunks from database
+    const savedChunks = resumeOptions.globalState.savedChunks;
+    for (let i = 0; i < Math.min(startFromChunk, savedChunks.length); i++) {
+      rewrittenChunks.push(savedChunks[i]?.chunkText || chunks[i]); // Use saved text, fallback to original
+      allChanges.push(`[Chunk ${i + 1}] Restored from previous session`);
+    }
+    console.log(`[Resume] Restored ${rewrittenChunks.length} previously rewritten chunks`);
+  } else if (startFromChunk > 0) {
+    // Fallback: if no saved chunks provided, use original text
+    console.warn(`[Resume] No saved chunks provided, using original text for first ${startFromChunk} chunks`);
+    for (let i = 0; i < startFromChunk; i++) {
+      rewrittenChunks.push(chunks[i]);
+      allChanges.push(`[Chunk ${i + 1}] Original text (no saved rewrite available)`);
+    }
+  }
+  
+  for (let i = startFromChunk; i < chunks.length; i++) {
     // Serialize GCS for injection into prompt (applies to ALL modes)
     const gcsSummary = serializeGCS(gcs);
     
