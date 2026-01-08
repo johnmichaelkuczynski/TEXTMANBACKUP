@@ -18,6 +18,16 @@ import {
   parseTargetLength,
   calculateLengthConfig
 } from './crossChunkCoherence';
+import {
+  startAudit,
+  logSkeletonExtracted,
+  logChunkProcessed,
+  logDbInsert,
+  logDbUpdate,
+  logStitchPass,
+  logError,
+  completeAudit
+} from './auditService';
 
 interface CCJob {
   id: number;
@@ -75,7 +85,7 @@ interface WarningMessage {
   shortfall: number;
 }
 
-const activeJobs = new Map<number, { aborted: boolean; startTime: number }>();
+const activeJobs = new Map<number, { aborted: boolean; startTime: number; auditLogId: number | null }>();
 const clientConnections = new Map<WebSocket, number | null>();
 
 // ============ DATABASE-ENFORCED COHERENCE HELPERS ============
@@ -358,7 +368,17 @@ async function startStreamingJob(
   }
   
   clientConnections.set(ws, job.id);
-  activeJobs.set(job.id, { aborted: false, startTime: Date.now() });
+  
+  // Start audit log for this job
+  let auditLogId: number | null = null;
+  try {
+    auditLogId = await startAudit(1, 'reconstruction', job.id);
+    console.log(`[AUDIT] Started audit log ${auditLogId} for job ${job.id}`);
+  } catch (auditError: any) {
+    console.error(`[AUDIT] Failed to start audit:`, auditError.message);
+  }
+  
+  activeJobs.set(job.id, { aborted: false, startTime: Date.now(), auditLogId });
   
   sendToClient(ws, {
     type: 'job_started',
@@ -367,7 +387,8 @@ async function startStreamingJob(
     inputWords: wordCount,
     targetWords: lengthConfig.targetMid,
     lengthMode: lengthConfig.lengthMode,
-    lengthRatio: lengthConfig.lengthRatio
+    lengthRatio: lengthConfig.lengthRatio,
+    auditLogId
   });
   
   processJobAsync(job.id);
@@ -730,7 +751,7 @@ async function resumeJob(ws: WebSocket, jobId: number): Promise<void> {
   }
   
   clientConnections.set(ws, jobId);
-  activeJobs.set(jobId, { aborted: false, startTime: Date.now() });
+  activeJobs.set(jobId, { aborted: false, startTime: Date.now(), auditLogId: null });
   
   sendToClient(ws, {
     type: 'job_resumed',

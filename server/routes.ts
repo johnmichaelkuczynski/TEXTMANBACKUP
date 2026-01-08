@@ -5726,5 +5726,70 @@ Write a complete, well-structured document. Ensure:
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AUDIT LOG ROUTES
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  app.get("/api/audit-logs", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const userId = (req.user as any)?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User ID not found" });
+      }
+      
+      const { getUserAuditLogs } = await import("./services/auditService");
+      const logs = await getUserAuditLogs(userId, 50);
+      res.json({ logs });
+    } catch (error: any) {
+      console.error("[Audit] Error fetching logs:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/audit-logs/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const auditLogId = parseInt(req.params.id);
+      if (isNaN(auditLogId)) {
+        return res.status(400).json({ error: "Invalid audit log ID" });
+      }
+      
+      const { getFullAuditReport } = await import("./services/auditService");
+      const report = await getFullAuditReport(auditLogId);
+      
+      if (!report) {
+        return res.status(404).json({ error: "Audit log not found" });
+      }
+      
+      res.json({ report });
+    } catch (error: any) {
+      console.error("[Audit] Error fetching audit report:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/audit-logs/:id/entries", async (req: Request, res: Response) => {
+    try {
+      const auditLogId = parseInt(req.params.id);
+      if (isNaN(auditLogId)) {
+        return res.status(400).json({ error: "Invalid audit log ID" });
+      }
+      
+      const { getAuditEntries } = await import("./services/auditService");
+      const entries = await getAuditEntries(auditLogId);
+      res.json({ entries });
+    } catch (error: any) {
+      console.error("[Audit] Error fetching audit entries:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return app;
 }

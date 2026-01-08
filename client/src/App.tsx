@@ -9,6 +9,7 @@ import TranslationPage from "@/pages/TranslationPage";
 import WebSearchPage from "@/pages/WebSearchPage";
 
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
+import JobHistoryPage from "@/pages/job-history";
 import NotFound from "@/pages/not-found";
 import { BrainCircuit, Languages, FileEdit, Globe, Bot, Brain, Mail, User, LogOut, Trash2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
@@ -270,6 +271,7 @@ function Router({ resetKey }: { resetKey: number }) {
       <Switch key={resetKey}>
         <Route path="/" component={HomePage} />
         <Route path="/analytics" component={AnalyticsPage} />
+        <Route path="/job-history" component={JobHistoryPage} />
 
         <Route component={NotFound} />
       </Switch>
