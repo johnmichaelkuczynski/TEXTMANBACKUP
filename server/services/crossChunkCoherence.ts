@@ -10,6 +10,7 @@ import {
   ContentAddition,
   ChapterInfo
 } from "@shared/schema";
+import { logLLMCall, summarizeText } from './auditService';
 
 let anthropic: Anthropic | null = null;
 let openai: OpenAI | null = null;
@@ -539,6 +540,7 @@ async function callWithFallback(
   
   for (let attempt = 0; attempt <= MAX_TRUNCATION_RETRIES; attempt++) {
     try {
+      const ccStartTime = Date.now();
       const message = await getAnthropic().messages.create({
         model: PRIMARY_MODEL,
         max_tokens: Math.min(currentMaxTokens, CLAUDE_MAX_OUTPUT_TOKENS),
@@ -548,6 +550,18 @@ async function callWithFallback(
       
       const text = message.content[0].type === 'text' ? message.content[0].text : '';
       const stopReason = message.stop_reason;
+      
+      await logLLMCall({
+        jobType: 'cc_chunk_reconstruction',
+        modelName: PRIMARY_MODEL,
+        provider: 'anthropic',
+        promptSummary: summarizeText(prompt, 100),
+        responseSummary: summarizeText(text, 200),
+        inputTokens: message.usage?.input_tokens,
+        outputTokens: message.usage?.output_tokens,
+        latencyMs: Date.now() - ccStartTime,
+        status: stopReason === 'end_turn' ? 'success' : stopReason || 'unknown'
+      });
       
       // Check if truncated due to max_tokens
       if (stopReason === 'max_tokens') {
@@ -587,6 +601,7 @@ async function callWithFallback(
       if (isRetryable) {
         console.log(`[CC] Claude model error (${status}), falling back to GPT-4 Turbo`);
         try {
+          const fallbackStartTime = Date.now();
           const completion = await getOpenAI().chat.completions.create({
             model: FALLBACK_MODEL,
             max_tokens: Math.min(currentMaxTokens, GPT_MAX_OUTPUT_TOKENS),
@@ -595,6 +610,18 @@ async function callWithFallback(
           });
           const text = completion.choices[0]?.message?.content || '';
           const finishReason = completion.choices[0]?.finish_reason;
+          
+          await logLLMCall({
+            jobType: 'cc_chunk_reconstruction',
+            modelName: FALLBACK_MODEL,
+            provider: 'openai',
+            promptSummary: summarizeText(prompt, 100),
+            responseSummary: summarizeText(text, 200),
+            inputTokens: completion.usage?.prompt_tokens,
+            outputTokens: completion.usage?.completion_tokens,
+            latencyMs: Date.now() - fallbackStartTime,
+            status: finishReason === 'stop' ? 'success' : finishReason || 'unknown'
+          });
           
           if (finishReason === 'length') {
             if (retryOnTruncation && attempt < MAX_TRUNCATION_RETRIES) {

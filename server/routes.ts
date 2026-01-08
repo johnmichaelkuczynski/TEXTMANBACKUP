@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import path from "path";
 import { registerPaymentRoutes } from "./routes/payments";
 import OpenAI from "openai";
+import { logLLMCall, logAuditEvent, summarizeText } from "./services/auditService";
 // GPT Bypass Humanizer imports
 import { fileProcessorService } from "./services/fileProcessor";
 import { textChunkerService } from "./services/textChunker";

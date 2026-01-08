@@ -18,6 +18,7 @@ import {
   parseTargetLength,
   calculateLengthConfig
 } from './crossChunkCoherence';
+import { logChunkProcessing, logLengthEnforcement, createJobHistoryEntry, updateJobHistoryStatus } from './auditService';
 
 interface CCJob {
   id: number;
@@ -470,6 +471,19 @@ async function processJobAsync(jobId: number): Promise<void> {
       const isOnTarget = actualWords >= chunk.minWords! && actualWords <= chunk.maxWords!;
       const chunkStatus = isOnTarget ? 'on_target' : 'flagged';
       
+      await logChunkProcessing({
+        jobId,
+        jobType: 'cc_reconstruction',
+        chunkIndex: chunk.chunkIndex,
+        inputWordCount: chunk.chunkInputWords!,
+        outputWordCount: actualWords,
+        targetWordCount: chunk.targetWords!,
+        minWordCount: chunk.minWords!,
+        maxWordCount: chunk.maxWords!,
+        passed: isOnTarget,
+        failureReason: isOnTarget ? undefined : `Output ${actualWords} words outside range ${chunk.minWords}-${chunk.maxWords}`
+      });
+      
       try {
         console.log(`[DB] Updating reconstructionChunks complete, chunkId: ${chunk.id}`);
         console.log(`[DB-CC] Delta to write: claims=${delta.newClaimsIntroduced?.length || 0}, terms=${delta.termsUsed?.length || 0}`);
@@ -592,6 +606,17 @@ async function processJobAsync(jobId: number): Promise<void> {
     );
     
     const finalWordCount = countWords(finalOutput);
+    const targetMet = finalWordCount >= job.targetMinWords! && finalWordCount <= job.targetMaxWords!;
+    
+    await logLengthEnforcement({
+      jobId,
+      jobType: 'cc_reconstruction',
+      targetWords: job.targetMidWords!,
+      finalWords: finalWordCount,
+      targetMet,
+      iterationsRequired: job.numChunks!,
+      failureReason: targetMet ? undefined : `Final ${finalWordCount} words outside target range ${job.targetMinWords}-${job.targetMaxWords}`
+    });
     
     try {
       console.log(`[DB] Updating reconstructionDocuments with final output, jobId: ${jobId}, words: ${finalWordCount}`);

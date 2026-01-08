@@ -8,6 +8,7 @@ import {
 } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 import { safeDbInsert, safeDbUpdate, safeDbInsertRequired, safeDbUpdateRequired } from './dbHelper';
+import { logLLMCall, logChunkProcessing, summarizeText } from './auditService';
 
 const anthropic = new Anthropic();
 
@@ -487,10 +488,26 @@ Extract the following in JSON format:
 
 Return ONLY valid JSON, no other text.`;
 
+  const startTime = Date.now();
   const skeletonResponse = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
     messages: [{ role: 'user', content: skeletonPrompt }]
+  });
+  const skeletonResponseText = skeletonResponse.content[0].type === 'text' ? skeletonResponse.content[0].text : '';
+  await logLLMCall({
+    jobId,
+    jobType: 'pipeline_stage1',
+    modelName: 'claude-sonnet-4-20250514',
+    provider: 'anthropic',
+    promptSummary: 'Extract document skeleton',
+    promptFull: skeletonPrompt,
+    responseSummary: summarizeText(skeletonResponseText, 200),
+    responseFull: skeletonResponseText,
+    inputTokens: skeletonResponse.usage?.input_tokens,
+    outputTokens: skeletonResponse.usage?.output_tokens,
+    latencyMs: Date.now() - startTime,
+    status: 'success'
   });
   
   let skeleton: GlobalSkeleton;
@@ -530,6 +547,7 @@ TASK: Rewrite this document as a rigorous analytical piece that:
 
 Output ONLY the reconstructed document, no commentary.`;
 
+  const reconstructStartTime = Date.now();
   const reconstructResponse = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 16000,
@@ -537,6 +555,20 @@ Output ONLY the reconstructed document, no commentary.`;
   });
   
   const output = reconstructResponse.content[0].type === 'text' ? reconstructResponse.content[0].text : '';
+  await logLLMCall({
+    jobId,
+    jobType: 'pipeline_stage1',
+    modelName: 'claude-sonnet-4-20250514',
+    provider: 'anthropic',
+    promptSummary: 'Reconstruct document',
+    promptFull: reconstructPrompt,
+    responseSummary: summarizeText(output, 200),
+    responseFull: output,
+    inputTokens: reconstructResponse.usage?.input_tokens,
+    outputTokens: reconstructResponse.usage?.output_tokens,
+    latencyMs: Date.now() - reconstructStartTime,
+    status: 'success'
+  });
   
   onProgress('Reconstruction complete', 2, 2);
   
@@ -598,15 +630,31 @@ Return as JSON array:
 
 Return exactly 25 claims, ensuring variety across the document.`;
 
+  const claimsStartTime = Date.now();
   const claimsResponse = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 8000,
     messages: [{ role: 'user', content: claimsPrompt }]
   });
+  const claimsResponseText = claimsResponse.content[0].type === 'text' ? claimsResponse.content[0].text : '';
+  await logLLMCall({
+    jobId,
+    jobType: 'pipeline_stage2',
+    modelName: 'claude-sonnet-4-20250514',
+    provider: 'anthropic',
+    promptSummary: 'Identify 25 claims to target',
+    promptFull: claimsPrompt,
+    responseSummary: summarizeText(claimsResponseText, 200),
+    responseFull: claimsResponseText,
+    inputTokens: claimsResponse.usage?.input_tokens,
+    outputTokens: claimsResponse.usage?.output_tokens,
+    latencyMs: Date.now() - claimsStartTime,
+    status: 'success'
+  });
   
   let claimsToTarget: { claimIndex: number; claim: string; location: string }[] = [];
   try {
-    const responseText = claimsResponse.content[0].type === 'text' ? claimsResponse.content[0].text : '';
+    const responseText = claimsResponseText;
     const jsonMatch = responseText.match(/\[[\s\S]*\]/);
     claimsToTarget = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
   } catch (e) {
@@ -658,14 +706,30 @@ Return as JSON array:
   }
 ]`;
 
+    const objStartTime = Date.now();
     const objResponse = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8000,
       messages: [{ role: 'user', content: objectionPrompt }]
     });
+    const objResponseText = objResponse.content[0].type === 'text' ? objResponse.content[0].text : '';
+    await logLLMCall({
+      jobId,
+      jobType: 'pipeline_stage2',
+      modelName: 'claude-sonnet-4-20250514',
+      provider: 'anthropic',
+      promptSummary: `Generate objections chunk ${chunk + 1}/5`,
+      promptFull: objectionPrompt,
+      responseSummary: summarizeText(objResponseText, 200),
+      responseFull: objResponseText,
+      inputTokens: objResponse.usage?.input_tokens,
+      outputTokens: objResponse.usage?.output_tokens,
+      latencyMs: Date.now() - objStartTime,
+      status: 'success'
+    });
     
     try {
-      const responseText = objResponse.content[0].type === 'text' ? objResponse.content[0].text : '';
+      const responseText = objResponseText;
       const jsonMatch = responseText.match(/\[[\s\S]*\]/);
       const chunkObjections = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       
@@ -799,14 +863,30 @@ Return as JSON array:
   }
 ]`;
 
+    const enhanceStartTime = Date.now();
     const enhanceResponse = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8000,
       messages: [{ role: 'user', content: enhancePrompt }]
     });
+    const enhanceResponseText = enhanceResponse.content[0].type === 'text' ? enhanceResponse.content[0].text : '';
+    await logLLMCall({
+      jobId,
+      jobType: 'pipeline_stage3',
+      modelName: 'claude-sonnet-4-20250514',
+      provider: 'anthropic',
+      promptSummary: `Enhance responses chunk ${chunk + 1}/5`,
+      promptFull: enhancePrompt,
+      responseSummary: summarizeText(enhanceResponseText, 200),
+      responseFull: enhanceResponseText,
+      inputTokens: enhanceResponse.usage?.input_tokens,
+      outputTokens: enhanceResponse.usage?.output_tokens,
+      latencyMs: Date.now() - enhanceStartTime,
+      status: 'success'
+    });
     
     try {
-      const responseText = enhanceResponse.content[0].type === 'text' ? enhanceResponse.content[0].text : '';
+      const responseText = enhanceResponseText;
       const jsonMatch = responseText.match(/\[[\s\S]*\]/);
       const chunkResponses = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
       
@@ -932,6 +1012,7 @@ Output ONLY the rewritten document.`;
 
   onProgress('Generating bullet-proof version...', 1, 3);
   
+  const bulletproofStartTime = Date.now();
   const bulletproofResponse = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 20000,
@@ -939,6 +1020,20 @@ Output ONLY the rewritten document.`;
   });
   
   const output = bulletproofResponse.content[0].type === 'text' ? bulletproofResponse.content[0].text : '';
+  await logLLMCall({
+    jobId,
+    jobType: 'pipeline_stage4',
+    modelName: 'claude-sonnet-4-20250514',
+    provider: 'anthropic',
+    promptSummary: 'Generate bullet-proof version',
+    promptFull: integrationPrompt,
+    responseSummary: summarizeText(output, 200),
+    responseFull: output,
+    inputTokens: bulletproofResponse.usage?.input_tokens,
+    outputTokens: bulletproofResponse.usage?.output_tokens,
+    latencyMs: Date.now() - bulletproofStartTime,
+    status: 'success'
+  });
   
   onProgress('Verifying integrations...', 2, 3);
   
