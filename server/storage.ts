@@ -322,9 +322,34 @@ export class DatabaseStorage implements IStorage {
   // Job History operations
   async getAllJobs(): Promise<any[]> {
     const { coherenceDocuments, coherenceChunks, reconstructionProjects } = await import("@shared/schema");
-    const { desc, sql, count } = await import("drizzle-orm");
+    const { desc, sql } = await import("drizzle-orm");
     
-    // Get coherence documents with chunk counts
+    // First, get ALL unique documentIds from coherence_chunks directly
+    // This ensures we find jobs even without parent document records
+    const allChunks = await db
+      .select({
+        documentId: coherenceChunks.documentId,
+        coherenceMode: coherenceChunks.coherenceMode,
+        chunkIndex: coherenceChunks.chunkIndex,
+        chunkText: coherenceChunks.chunkText,
+        createdAt: coherenceChunks.createdAt,
+      })
+      .from(coherenceChunks)
+      .orderBy(desc(coherenceChunks.createdAt));
+    
+    // Define chunk type
+    type ChunkRow = { documentId: string; coherenceMode: string; chunkIndex: number; chunkText: string | null; createdAt: Date; };
+    
+    // Group chunks by documentId
+    const chunksByDocId: Record<string, ChunkRow[]> = {};
+    for (const chunk of allChunks) {
+      if (!chunksByDocId[chunk.documentId]) {
+        chunksByDocId[chunk.documentId] = [];
+      }
+      chunksByDocId[chunk.documentId].push(chunk);
+    }
+    
+    // Get coherence documents for additional metadata
     const coherenceDocs = await db
       .select({
         id: coherenceDocuments.id,
@@ -334,40 +359,45 @@ export class DatabaseStorage implements IStorage {
         createdAt: coherenceDocuments.createdAt,
         updatedAt: coherenceDocuments.updatedAt,
       })
-      .from(coherenceDocuments)
-      .orderBy(desc(coherenceDocuments.createdAt));
+      .from(coherenceDocuments);
     
-    // Get chunk counts for each document
-    const jobsWithCounts = await Promise.all(
-      coherenceDocs.map(async (doc) => {
-        const chunks = await db
-          .select()
-          .from(coherenceChunks)
-          .where(eq(coherenceChunks.documentId, doc.documentId));
-        
-        // Determine status based on chunks and timing
-        const lastChunkTime = chunks.length > 0 
-          ? Math.max(...chunks.map(c => new Date(c.createdAt).getTime()))
-          : new Date(doc.createdAt).getTime();
-        const timeSinceLastActivity = Date.now() - lastChunkTime;
-        const hasStitchedOutput = (doc.globalState as any)?.stitchedDocument;
-        
-        let status = 'completed';
-        if (!hasStitchedOutput && chunks.length > 0) {
-          status = timeSinceLastActivity > 30000 ? 'interrupted' : 'in-progress';
-        } else if (chunks.length === 0) {
-          status = timeSinceLastActivity > 30000 ? 'interrupted' : 'in-progress';
-        }
-        
-        return {
-          ...doc,
-          type: 'coherence',
-          chunkCount: chunks.length,
-          status,
-          lastActivity: new Date(lastChunkTime),
-        };
-      })
-    );
+    const docsByDocId: Record<string, typeof coherenceDocs[0]> = {};
+    for (const doc of coherenceDocs) {
+      docsByDocId[doc.documentId] = doc;
+    }
+    
+    // Build jobs from chunks - this captures ALL jobs including orphan chunks
+    const coherenceJobs: any[] = [];
+    
+    for (const documentId of Object.keys(chunksByDocId)) {
+      const chunks = chunksByDocId[documentId];
+      const parentDoc = docsByDocId[documentId];
+      const lastChunkTime = Math.max(...chunks.map((c: ChunkRow) => new Date(c.createdAt).getTime()));
+      const firstChunkTime = Math.min(...chunks.map((c: ChunkRow) => new Date(c.createdAt).getTime()));
+      const timeSinceLastActivity = Date.now() - lastChunkTime;
+      
+      // Check for stitched output in parent doc
+      const hasStitchedOutput = parentDoc && (parentDoc.globalState as any)?.stitchedDocument;
+      
+      // Determine status
+      let status = 'completed';
+      if (!hasStitchedOutput) {
+        status = timeSinceLastActivity > 60000 ? 'interrupted' : 'in-progress';
+      }
+      
+      coherenceJobs.push({
+        id: parentDoc?.id || 0,
+        documentId,
+        coherenceMode: parentDoc?.coherenceMode || chunks[0]?.coherenceMode || 'unknown',
+        globalState: parentDoc?.globalState || {},
+        createdAt: parentDoc?.createdAt || new Date(firstChunkTime),
+        updatedAt: parentDoc?.updatedAt || new Date(lastChunkTime),
+        type: 'coherence',
+        chunkCount: chunks.length,
+        status,
+        lastActivity: new Date(lastChunkTime),
+      });
+    }
     
     // Get reconstruction projects
     const reconstructions = await db
@@ -385,8 +415,10 @@ export class DatabaseStorage implements IStorage {
     }));
     
     // Combine and sort by date
-    const allJobs = [...jobsWithCounts, ...reconstructionJobs]
+    const allJobs = [...coherenceJobs, ...reconstructionJobs]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    console.log(`[Storage] getAllJobs found ${coherenceJobs.length} coherence jobs, ${reconstructionJobs.length} reconstruction jobs`);
     
     return allJobs;
   }
@@ -394,20 +426,33 @@ export class DatabaseStorage implements IStorage {
   async getJobWithChunks(documentId: string): Promise<{ document: any; chunks: any[] } | null> {
     const { coherenceDocuments, coherenceChunks } = await import("@shared/schema");
     
-    const [document] = await db
-      .select()
-      .from(coherenceDocuments)
-      .where(eq(coherenceDocuments.documentId, documentId));
-    
-    if (!document) return null;
-    
+    // First, get chunks - they may exist without a parent document
     const chunks = await db
       .select()
       .from(coherenceChunks)
       .where(eq(coherenceChunks.documentId, documentId))
       .orderBy(coherenceChunks.chunkIndex);
     
-    return { document, chunks };
+    // Get parent document if it exists
+    const [document] = await db
+      .select()
+      .from(coherenceDocuments)
+      .where(eq(coherenceDocuments.documentId, documentId));
+    
+    // If no chunks exist, this job doesn't exist
+    if (chunks.length === 0 && !document) return null;
+    
+    // Create a synthetic document from chunks if no parent document exists
+    const effectiveDocument = document || {
+      id: 0,
+      documentId,
+      coherenceMode: chunks[0]?.coherenceMode || 'unknown',
+      globalState: {},
+      createdAt: chunks.length > 0 ? new Date(Math.min(...chunks.map(c => new Date(c.createdAt).getTime()))) : new Date(),
+      updatedAt: chunks.length > 0 ? new Date(Math.max(...chunks.map(c => new Date(c.createdAt).getTime()))) : new Date(),
+    };
+    
+    return { document: effectiveDocument, chunks };
   }
 
   async getJobChunks(documentId: string): Promise<any[]> {
