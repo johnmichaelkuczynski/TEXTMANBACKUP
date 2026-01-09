@@ -1598,10 +1598,14 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     setObjectionsOutput("");
     setFullSuiteObjectionProofOutput("");
     setFullSuiteReconstructionOutput("");
-    // Close any open popups
+    // Close other popups but OPEN the unified Full Suite popup immediately
     setFullSuiteReconstructionPopupOpen(false);
     setFullSuiteObjectionsPopupOpen(false);
-    setFullSuitePopupOpen(false);
+    
+    // ============ OPEN UNIFIED POPUP IMMEDIATELY ============
+    // Show the popup from the start so user can see progress
+    setFullSuitePopupOpen(true);
+    setFullSuiteActiveTab("reconstruction");
 
     const allModes = ["reconstruction"];
     
@@ -1609,13 +1613,6 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     const isExpansionRequest = hasExpansionInstructions(effectiveInstructions);
 
     try {
-      // ============ OPEN UNIFIED POPUP IMMEDIATELY ============
-      // Show the popup from the start so user can see progress
-      setFullSuitePopupOpen(true);
-      setFullSuiteActiveTab("reconstruction");
-      setFullSuiteReconstructionOutput("");
-      setObjectionsOutput("");
-      setFullSuiteObjectionProofOutput("");
       
       // ============ STAGE 1: RECONSTRUCTION ============
       console.log("[FULL SUITE] Stage 1: Running reconstruction...");
