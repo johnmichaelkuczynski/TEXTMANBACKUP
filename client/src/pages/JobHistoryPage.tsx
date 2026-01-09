@@ -34,7 +34,9 @@ import {
   FileText,
   Loader2,
   Home,
-  Copy
+  Copy,
+  ArrowUpRight,
+  Edit
 } from 'lucide-react';
 
 interface Job {
@@ -51,6 +53,7 @@ interface Job {
   originalText?: string;
   reconstructedText?: string;
   targetWordCount?: number;
+  customInstructions?: string;
 }
 
 interface Chunk {
@@ -208,6 +211,67 @@ export function JobHistoryPage() {
     });
   };
 
+  // Load any project (finished or unfinished) back to main page with all data
+  const handleLoadProject = async (job: Job) => {
+    try {
+      // Fetch full job details
+      const response = await fetch(`/api/jobs/${encodeURIComponent(job.documentId)}`);
+      if (!response.ok) {
+        throw new Error('Failed to load job details');
+      }
+      const jobData = await response.json();
+      
+      // Get the output text (stitched document or reconstructed text)
+      let outputText = '';
+      let originalText = job.originalText || '';
+      let customInstructions = job.customInstructions || '';
+      
+      if (job.type === 'reconstruction') {
+        outputText = job.reconstructedText || '';
+        originalText = job.originalText || '';
+      } else {
+        // For coherence jobs, get stitched document from globalState
+        outputText = job.globalState?.stitchedDocument || '';
+        // Also try to get customInstructions from globalState if available
+        customInstructions = job.globalState?.customInstructions || customInstructions;
+        // Get original text from chunks if available
+        if (jobData.chunks && jobData.chunks.length > 0) {
+          const sortedChunks = [...jobData.chunks].sort((a: any, b: any) => a.chunkIndex - b.chunkIndex);
+          // Note: For viewing finished jobs, we use the output text
+        }
+      }
+      
+      // Store project data in sessionStorage for HomePage to pick up
+      sessionStorage.setItem('loadProject', JSON.stringify({
+        documentId: job.documentId,
+        type: job.type,
+        status: job.status,
+        mode: job.coherenceMode,
+        originalText: originalText,
+        outputText: outputText,
+        customInstructions: customInstructions,
+        globalState: job.globalState || {},
+        isFinished: job.status === 'completed',
+      }));
+      
+      const action = job.status === 'completed' ? 'modify' : 'resume';
+      toast({
+        title: 'Loading Project',
+        description: `Opening project to ${action}...`,
+      });
+      
+      // Navigate to home page with NEUROTEXT section
+      window.location.href = '/#neurotext';
+    } catch (error) {
+      console.error('Error loading project:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load project',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
@@ -315,30 +379,32 @@ export function JobHistoryPage() {
                           variant="ghost"
                           onClick={() => fetchJobDetail(job)}
                           data-testid={`button-view-${job.documentId}`}
+                          title="View details"
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        {job.status === 'interrupted' && job.type === 'coherence' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleResume(job)}
-                            disabled={resuming === job.documentId}
-                            data-testid={`button-resume-${job.documentId}`}
-                          >
-                            {resuming === job.documentId ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Play className="w-4 h-4" />
-                            )}
-                          </Button>
-                        )}
+                        {/* Load Project Button - works for all jobs (finished or unfinished) */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleLoadProject(job)}
+                          data-testid={`button-load-${job.documentId}`}
+                          title={job.status === 'completed' ? 'Load to modify' : 'Load to resume'}
+                          className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40 border-emerald-300 dark:border-emerald-700"
+                        >
+                          {job.status === 'completed' ? (
+                            <Edit className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <ArrowUpRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          )}
+                        </Button>
                         {(job.status === 'completed' || job.globalState?.stitchedDocument || job.reconstructedText) && (
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleDownload(job)}
                             data-testid={`button-download-${job.documentId}`}
+                            title="Download"
                           >
                             <Download className="w-4 h-4" />
                           </Button>

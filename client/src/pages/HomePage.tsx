@@ -24,7 +24,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Brain, Trash2, FileEdit, Loader2, Zap, Clock, Sparkles, Download, Shield, ShieldCheck, RefreshCw, Upload, FileText, BookOpen, BarChart3, AlertCircle, FileCode, Search, Copy, CheckCircle, Target, ChevronUp, ChevronDown, MessageSquareWarning, Circle, ArrowRight, Settings, ScanText, X, Play } from "lucide-react";
+import { Brain, Trash2, FileEdit, Loader2, Zap, Clock, Sparkles, Download, Shield, ShieldCheck, RefreshCw, Upload, FileText, BookOpen, BarChart3, AlertCircle, FileCode, Search, Copy, CheckCircle, Target, ChevronUp, ChevronDown, MessageSquareWarning, Circle, ArrowRight, Settings, ScanText, X, Play, Eye } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { analyzeDocument, compareDocuments, checkForAI } from "@/lib/analysis";
 import { AnalysisMode, DocumentInput as DocumentInputType, AIDetectionResult, DocumentAnalysis, DocumentComparison } from "@/lib/types";
@@ -384,6 +386,52 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     sessionStorage.removeItem('resumeJob');
     setResumeJobData(null);
   };
+  
+  // Check for loadProject data from Job History (for resume/modify)
+  useEffect(() => {
+    const storedLoadProject = sessionStorage.getItem('loadProject');
+    if (storedLoadProject) {
+      try {
+        const project = JSON.parse(storedLoadProject);
+        sessionStorage.removeItem('loadProject');
+        
+        // Populate NEUROTEXT form with the loaded project data
+        if (project.outputText) {
+          // For finished projects, show the output so user can modify
+          setValidatorInputText(project.outputText);
+          setValidatorOutput(project.outputText);
+        } else if (project.originalText) {
+          // For unfinished projects, load the original text
+          setValidatorInputText(project.originalText);
+        }
+        
+        // Restore custom instructions
+        if (project.customInstructions) {
+          setValidatorCustomInstructions(project.customInstructions);
+          setShowValidatorCustomization(true);
+        }
+        
+        // Show toast
+        toast({
+          title: project.isFinished ? "Project Loaded for Modification" : "Project Loaded for Resume",
+          description: project.isFinished 
+            ? "You can now modify and re-run the reconstruction." 
+            : "Continue working on this project.",
+        });
+        
+        // Scroll to NEUROTEXT section
+        setTimeout(() => {
+          const neurotextSection = document.getElementById('neurotext');
+          if (neurotextSection) {
+            neurotextSection.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 300);
+      } catch (e) {
+        console.error("Error parsing loadProject data:", e);
+        sessionStorage.removeItem('loadProject');
+      }
+    }
+  }, []);
   
   // Reconstruction operations
   const [reconstructionInputText, setReconstructionInputText] = useState<string>("");
@@ -970,29 +1018,111 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     ];
     return expansionKeywords.some(pattern => pattern.test(instructions));
   };
+  
+  // NEUROTEXT REQUIREMENT: Intelligent input interpretation
+  // Detects if the main text box contains instructions rather than content
+  const detectsAsInstructions = (text: string): boolean => {
+    if (!text || text.trim().length === 0) return false;
+    const upperText = text.toUpperCase();
+    const instructionPatterns = [
+      /^WRITE\s+/i,
+      /^GENERATE\s+/i,
+      /^CREATE\s+/i,
+      /^EXPAND\s+/i,
+      /^PRODUCE\s+/i,
+      /^COMPOSE\s+/i,
+      /^TURN\s+/i,
+      /^MAKE\s+/i,
+      /\d+\s*WORDS?\s*(?:ESSAY|PAPER|THESIS|DISSERTATION|DOCUMENT|ARTICLE)/i,
+      /(?:ESSAY|PAPER|THESIS|DISSERTATION|ARTICLE)\s+ON\s+/i,
+      /WRITE\s+(?:AN?\s+)?(?:ESSAY|PAPER|THESIS|DISSERTATION|ARTICLE)/i,
+    ];
+    return instructionPatterns.some(pattern => pattern.test(text));
+  };
+  
+  // Intelligently interpret user input - swap boxes if main text looks like instructions
+  const interpretInput = (mainText: string, instructionsText: string): { effectiveText: string; effectiveInstructions: string; wasSwapped: boolean } => {
+    const mainLooksLikeInstructions = detectsAsInstructions(mainText);
+    const instructionsLooksLikeContent = instructionsText.trim().length > 0 && 
+      !detectsAsInstructions(instructionsText) && 
+      instructionsText.trim().split(/\s+/).length > 50; // Long text in instructions box
+    
+    // If main text looks like instructions AND instructions box has content that doesn't look like instructions
+    if (mainLooksLikeInstructions && instructionsLooksLikeContent) {
+      return {
+        effectiveText: instructionsText,
+        effectiveInstructions: mainText,
+        wasSwapped: true
+      };
+    }
+    
+    // If only main text exists and it looks like instructions, use it as instructions
+    if (mainLooksLikeInstructions && !instructionsText.trim()) {
+      return {
+        effectiveText: '',
+        effectiveInstructions: mainText,
+        wasSwapped: false
+      };
+    }
+    
+    return {
+      effectiveText: mainText,
+      effectiveInstructions: instructionsText,
+      wasSwapped: false
+    };
+  };
 
   // Text Model Validator Handler
+  // NEUROTEXT REQUIREMENT: Allow instructions-only mode - no input text validation
+  // NEUROTEXT REQUIREMENT: Intelligent input interpretation
   const handleValidatorProcess = async (mode: "reconstruction") => {
-    if (!validatorInputText.trim()) {
+    // Allow operation if EITHER input text OR custom instructions are provided
+    const hasInputText = validatorInputText.trim().length > 0;
+    const hasInstructions = validatorCustomInstructions.trim().length > 0;
+    
+    if (!hasInputText && !hasInstructions) {
       toast({
-        title: "No Input Text",
-        description: "Please enter text to validate",
+        title: "Input Required",
+        description: "Please enter text OR instructions. You can use instructions alone to generate content.",
         variant: "destructive"
       });
       return;
     }
+    
+    // INTELLIGENT INPUT INTERPRETATION
+    // If user puts instructions in the main text box, detect and interpret correctly
+    const interpretation = interpretInput(validatorInputText, validatorCustomInstructions);
+    
+    // Notify user if we detected and swapped inputs
+    if (interpretation.wasSwapped) {
+      toast({
+        title: "Inputs Interpreted",
+        description: "Detected instructions in text box and content in instructions box - they've been swapped automatically.",
+      });
+    }
+    
+    // Use interpreted values
+    const effectiveText = interpretation.effectiveText;
+    const effectiveInstructions = interpretation.effectiveInstructions;
+    
+    // If only instructions provided (no effective text), use instructions as the "input" for processing
+    const effectiveInputText = effectiveText.trim().length > 0 ? effectiveText : effectiveInstructions;
 
     setValidatorMode(mode);
     setValidatorLoading(true);
     setValidatorOutput("");
     
-    // Check word count for progress messaging
-    const wordCount = validatorInputText.trim().split(/\s+/).length;
+    // Check word count for progress messaging - use effectiveInputText
+    const wordCount = effectiveInputText.trim().split(/\s+/).filter(w => w).length;
     
-    // Detect if this is an expansion request for streaming
-    const isExpansionRequest = hasExpansionInstructions(validatorCustomInstructions);
+    // Detect if this is an expansion request for streaming (check both original and interpreted instructions)
+    const isExpansionRequest = hasExpansionInstructions(effectiveInstructions);
+    const isInstructionsOnly = effectiveText.trim().length === 0;
     
-    if (isExpansionRequest) {
+    // For instructions-only mode, show appropriate message
+    if (isInstructionsOnly) {
+      setValidatorProgress("Generating content from instructions...");
+    } else if (isExpansionRequest) {
       // Open streaming modal for real-time preview - signal new generation
       setStreamingStartNew(true);
       setStreamingModalOpen(true);
@@ -1015,18 +1145,19 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: validatorInputText,
+          text: effectiveInputText,  // Use effective input (text or instructions)
           mode,
           targetDomain: validatorTargetDomain,
           fidelityLevel: validatorFidelityLevel,
           mathFramework: validatorMathFramework,
           constraintType: validatorConstraintType,
           rigorLevel: validatorRigorLevel,
-          customInstructions: validatorCustomInstructions,
+          customInstructions: effectiveInstructions,  // Use interpreted instructions
           truthMapping: validatorTruthMapping,
           mathTruthMapping: validatorMathTruthMapping,
           literalTruth: validatorLiteralTruth,
           llmProvider: validatorLLMProvider,
+          instructionsOnly: isInstructionsOnly,  // Signal instructions-only mode
         }),
       });
 
@@ -1422,16 +1553,40 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
   };
 
   // FULL SUITE Handler - Runs Reconstruction → Objections in sequence
+  // NEUROTEXT REQUIREMENT: Allow instructions-only mode
+  // NEUROTEXT REQUIREMENT: Intelligent input interpretation
   const handleRunFullSuite = async () => {
-    // Validate inputs
-    if (!validatorInputText.trim()) {
+    // Allow operation if EITHER input text OR custom instructions are provided
+    const hasInputText = validatorInputText.trim().length > 0;
+    const hasInstructions = validatorCustomInstructions.trim().length > 0;
+    
+    if (!hasInputText && !hasInstructions) {
       toast({
-        title: "No Input Text",
-        description: "Please enter text to analyze.",
+        title: "Input Required",
+        description: "Please enter text OR instructions to run the Full Suite.",
         variant: "destructive"
       });
       return;
     }
+    
+    // INTELLIGENT INPUT INTERPRETATION - same logic as reconstruction handler
+    const interpretation = interpretInput(validatorInputText, validatorCustomInstructions);
+    
+    // Notify user if we detected and swapped inputs
+    if (interpretation.wasSwapped) {
+      toast({
+        title: "Inputs Interpreted",
+        description: "Detected instructions in text box and content in instructions box - they've been swapped automatically.",
+      });
+    }
+    
+    // Use interpreted values
+    const effectiveText = interpretation.effectiveText;
+    const effectiveInstructions = interpretation.effectiveInstructions;
+    const isInstructionsOnly = effectiveText.trim().length === 0;
+    
+    // Use effective input for processing (text or instructions if text is empty)
+    const effectiveInputText = effectiveText.trim().length > 0 ? effectiveText : effectiveInstructions;
 
     // Initialize pipeline
     setFullSuiteLoading(true);
@@ -1450,8 +1605,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
 
     const allModes = ["reconstruction"];
     
-    // Detect if this is an expansion request
-    const isExpansionRequest = hasExpansionInstructions(validatorCustomInstructions);
+    // Detect if this is an expansion request (using interpreted instructions)
+    const isExpansionRequest = hasExpansionInstructions(effectiveInstructions);
 
     try {
       // ============ OPEN UNIFIED POPUP IMMEDIATELY ============
@@ -1473,7 +1628,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              text: validatorInputText,
+              text: effectiveInputText,  // Use interpreted effective input
               mode: mode,
               targetDomain: validatorTargetDomain || undefined,
               fidelityLevel: "aggressive",
@@ -1482,7 +1637,8 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
               rigorLevel: "proof-ready",
               literalTruth: true,
               llmProvider: validatorLLMProvider,
-              customInstructions: validatorCustomInstructions || undefined,
+              customInstructions: effectiveInstructions || undefined,  // Use interpreted instructions
+              instructionsOnly: isInstructionsOnly,  // Signal instructions-only mode
             }),
           });
 
@@ -1533,7 +1689,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
           idea: "",
           tone: "professional",
           emphasis: "",
-          customInstructions: objectionsCustomInstructions,
+          customInstructions: objectionsCustomInstructions || effectiveInstructions,  // Use interpreted instructions as fallback
           llmProvider: validatorLLMProvider,
         }),
       });
@@ -1566,7 +1722,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
         body: JSON.stringify({
           originalText: reconstructionOutput,
           objectionsOutput: objectionsData.output,
-          customInstructions: validatorCustomInstructions || "",
+          customInstructions: effectiveInstructions || "",  // Use interpreted instructions
           finalVersionOnly: true,
         }),
       });
@@ -4106,19 +4262,19 @@ Generated on: ${new Date().toLocaleString()}`;
       {/* END OF HIDDEN INTELLIGENCE ANALYSIS TOOL */}
 
 
-      {/* TEXT MODEL VALIDATOR - Interpretive Generosity Framework */}
-      <div className="mt-16 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/10 dark:to-teal-900/10 p-8 rounded-lg border-2 border-emerald-200 dark:border-emerald-700">
+      {/* NEUROTEXT - Main Reconstruction Tool */}
+      <div id="neurotext" className="mt-16 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/10 dark:to-teal-900/10 p-8 rounded-lg border-2 border-emerald-200 dark:border-emerald-700">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-emerald-900 dark:text-emerald-100 mb-3 flex items-center justify-center gap-3">
               <BookOpen className="w-8 h-8 text-emerald-600" />
-              Text Model Validator
+              NEUROTEXT
             </h2>
             <p className="text-lg text-gray-700 dark:text-gray-300 mb-2">
-              Validate texts through interpretive generosity - find models that make difficult texts coherent
+              Intelligent text reconstruction - follows your instructions without limits
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Extract logic, swap domains, formalize mathematically, or let AI decide the best approach
+              Enter text to reconstruct, or just provide instructions to generate new content
             </p>
           </div>
 
@@ -4317,7 +4473,7 @@ Generated on: ${new Date().toLocaleString()}`;
                 {/* Run Button */}
                 <Button
                   onClick={handleRunFullSuite}
-                  disabled={fullSuiteLoading || !validatorInputText.trim()}
+                  disabled={fullSuiteLoading || (!validatorInputText.trim() && !validatorCustomInstructions.trim())}
                   className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white py-6 text-lg font-semibold"
                   data-testid="button-run-full-suite"
                 >
@@ -4333,6 +4489,19 @@ Generated on: ${new Date().toLocaleString()}`;
                     </>
                   )}
                 </Button>
+                
+                {/* View Results Button - Reopens popup when there's content */}
+                {(fullSuiteReconstructionOutput || objectionsOutput || fullSuiteObjectionProofOutput) && !fullSuitePopupOpen && (
+                  <Button
+                    onClick={() => setFullSuitePopupOpen(true)}
+                    variant="outline"
+                    className="w-full border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/30"
+                    data-testid="button-view-full-suite-results"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    View Full Suite Results
+                  </Button>
+                )}
 
                 {fullSuiteStage === "complete" && (
                   <div className="space-y-4">

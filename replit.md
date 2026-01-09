@@ -74,6 +74,12 @@ The application employs a monorepo structure, separating client and server compo
         - **Resume Functionality**: Interrupted jobs can be resumed from where they stopped
         - **Auto-refresh**: Viewer polls every 3 seconds for in-progress jobs
         - **Copy/Download**: Always available for generated content in the viewer
+    - **Intelligent Input Interpretation System** (Jan 2026): Smart detection and handling of user inputs across all functions:
+        - **Instructions-Only Mode**: Allows users to generate content without source text (e.g., "Write a 50,000 word essay on Freud")
+        - **Automatic Swap Detection**: If user places instructions in the text box and content in instructions box, system detects and swaps automatically
+        - **Expansion Keyword Detection**: Recognizes keywords like "expand", "write", "generate", "produce", etc.
+        - **Full Suite Integration**: All three stages (Reconstruction, Objections, Objection-Proof) use interpreted inputs
+        - **Toast Notification**: Users are notified when inputs are automatically interpreted/swapped
 
 ## External Dependencies
 - **AI Service Providers**: OpenAI API (GPT-4), Anthropic API (Claude), DeepSeek API, Perplexity AI, Grok API (xAI).
