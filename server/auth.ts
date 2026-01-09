@@ -44,17 +44,17 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  const isProduction = process.env.NODE_ENV === "production";
-  
+  // Session settings that work in both development and production
+  // Note: secure:false allows sessions to work over HTTP (Replit preview) and HTTPS
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
+    secret: process.env.SESSION_SECRET || "neurotext-session-secret-2026",
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
-      secure: isProduction, // Use secure cookies in production
+      secure: false, // Allow HTTP - Replit handles HTTPS at proxy level
       httpOnly: true,
-      sameSite: isProduction ? "none" : "lax", // Allow cross-site in production for Replit proxy
+      sameSite: "lax", // Works with same-site requests
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     },
   };

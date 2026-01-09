@@ -21,10 +21,10 @@ import {
   type CreditTransaction,
   type InsertCreditTransaction
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and } from "drizzle-orm";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -78,14 +78,17 @@ export interface IStorage {
   getJobChunks(documentId: string): Promise<any[]>;
 }
 
-const MemoryStore = createMemoryStore(session);
+const PgStore = connectPgSimple(session);
 
 export class DatabaseStorage implements IStorage {
   sessionStore: any;
 
   constructor() {
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
+    // Use Postgres-backed session store for persistence across restarts
+    this.sessionStore = new PgStore({
+      pool: pool,
+      tableName: 'session', // Session table in database
+      createTableIfMissing: true, // Auto-create table if it doesn't exist
     });
   }
   async getUser(id: number): Promise<User | undefined> {
