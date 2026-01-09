@@ -388,56 +388,74 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
   };
   
   // Check for loadProject data from Job History (for resume/modify)
+  // Uses an interval to check for sessionStorage changes since navigation may not trigger remount
   useEffect(() => {
-    const storedLoadProject = sessionStorage.getItem('loadProject');
-    if (storedLoadProject) {
-      try {
-        const project = JSON.parse(storedLoadProject);
-        sessionStorage.removeItem('loadProject');
-        
-        // Populate NEUROTEXT form with the loaded project data
-        if (project.outputText) {
-          // For finished or interrupted projects with output, show in popup
-          setFullSuiteReconstructionOutput(project.outputText);
-          setFullSuiteStage('complete');
-          setFullSuiteActiveTab('reconstruction');
-          setFullSuitePopupOpen(true);  // CRITICAL: Open the popup to show content
+    const checkForLoadProject = () => {
+      const storedLoadProject = sessionStorage.getItem('loadProject');
+      if (storedLoadProject) {
+        try {
+          const project = JSON.parse(storedLoadProject);
+          sessionStorage.removeItem('loadProject');
           
-          // Also set in validator output for reference
-          setValidatorOutput(project.outputText);
-        }
-        
-        if (project.originalText) {
-          // Load the original text into the input
-          setValidatorInputText(project.originalText);
-        }
-        
-        // Restore custom instructions
-        if (project.customInstructions) {
-          setValidatorCustomInstructions(project.customInstructions);
-          setShowValidatorCustomization(true);
-        }
-        
-        // Show toast
-        toast({
-          title: project.isFinished ? "Project Loaded" : "Project Loaded for Resume",
-          description: project.isFinished 
-            ? "Your generated content is shown in the popup." 
-            : "Continue working on this project.",
-        });
-        
-        // Scroll to NEUROTEXT section
-        setTimeout(() => {
-          const neurotextSection = document.getElementById('neurotext');
-          if (neurotextSection) {
-            neurotextSection.scrollIntoView({ behavior: 'smooth' });
+          console.log('[LoadProject] Loading project:', project.documentId, 'outputText length:', project.outputText?.length || 0);
+          
+          // Populate NEUROTEXT form with the loaded project data
+          if (project.outputText && project.outputText.trim().length > 0) {
+            // For finished or interrupted projects with output, show in popup
+            console.log('[LoadProject] Setting fullSuiteReconstructionOutput and opening popup');
+            setFullSuiteReconstructionOutput(project.outputText);
+            setFullSuiteStage('complete');
+            setFullSuiteActiveTab('reconstruction');
+            setFullSuitePopupOpen(true);  // CRITICAL: Open the popup to show content
+            
+            // Also set in validator output for reference
+            setValidatorOutput(project.outputText);
           }
-        }, 300);
-      } catch (e) {
-        console.error("Error parsing loadProject data:", e);
-        sessionStorage.removeItem('loadProject');
+          
+          if (project.originalText) {
+            // Load the original text into the input
+            setValidatorInputText(project.originalText);
+          }
+          
+          // Restore custom instructions
+          if (project.customInstructions) {
+            setValidatorCustomInstructions(project.customInstructions);
+            setShowValidatorCustomization(true);
+          }
+          
+          // Show toast
+          toast({
+            title: project.isFinished ? "Project Loaded" : "Project Loaded for Resume",
+            description: project.outputText 
+              ? "Your generated content is shown in the popup." 
+              : "Continue working on this project.",
+          });
+          
+          // Scroll to NEUROTEXT section
+          setTimeout(() => {
+            const neurotextSection = document.getElementById('neurotext');
+            if (neurotextSection) {
+              neurotextSection.scrollIntoView({ behavior: 'smooth' });
+            }
+          }, 300);
+        } catch (e) {
+          console.error("Error parsing loadProject data:", e);
+          sessionStorage.removeItem('loadProject');
+        }
       }
-    }
+    };
+    
+    // Check immediately on mount
+    checkForLoadProject();
+    
+    // Also check periodically for 5 seconds in case of navigation timing issues
+    const interval = setInterval(checkForLoadProject, 500);
+    const timeout = setTimeout(() => clearInterval(interval), 5000);
+    
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
   }, []);
   
   // Reconstruction operations
