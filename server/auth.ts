@@ -147,20 +147,27 @@ export function setupAuth(app: Express) {
       try {
         let user = await storage.getUserByUsername(normalizedUsername);
         if (!user) {
+          console.log("[Auth] Creating JMK user...");
           user = await storage.createUser({
             username: normalizedUsername,
             password: await hashPassword("dev123"),
             email: "jmk@neurotext.io"
           });
+          console.log("[Auth] JMK user created successfully");
         }
         
         req.login(user, (err) => {
-          if (err) return next(err);
+          if (err) {
+            console.error("[Auth] JMK login session error:", err);
+            return res.status(500).json({ message: "Session error: " + err.message });
+          }
+          console.log("[Auth] JMK logged in successfully");
           res.status(200).json(user);
         });
         return; // Exit early for JMK
-      } catch (error) {
-        return res.status(500).json({ message: "Internal server error" });
+      } catch (error: any) {
+        console.error("[Auth] JMK login error:", error);
+        return res.status(500).json({ message: "Login error: " + (error.message || "Unknown error") });
       }
     } else {
       // Regular validation for other users
