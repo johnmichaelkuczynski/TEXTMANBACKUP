@@ -153,14 +153,9 @@ export function CCStreamingUI({ text, customInstructions, onComplete, onError }:
 
   const startJob = useCallback(() => {
     const wordCount = countWords(text);
-    if (wordCount < 500) {
-      onError('Document too short for CC processing (minimum 500 words)');
-      return;
-    }
-    if (wordCount > 50000) {
-      onError('Document exceeds 50,000 word limit for CC streaming');
-      return;
-    }
+    // NO LENGTH RESTRICTIONS - the app does what the user says. Period.
+    // If the input is a generation instruction (e.g., "WRITE A 500000 WORD ESSAY ON X"),
+    // the backend will detect this and generate the content.
 
     setPhase('connecting');
     setMessage('Connecting to streaming server...');

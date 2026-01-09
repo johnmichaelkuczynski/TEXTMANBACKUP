@@ -49,6 +49,11 @@ The application employs a monorepo structure, separating client and server compo
             - Continuations saved as database chunks with proper delta/coherence tracking
             - System accepts 95%+ of target if LLM reaches natural conclusion
             - Completion message includes: targetMet status, percentage, shortfall amount, failure reasons
+    - **Generation From Instructions** (Jan 2026): The app does what the user says. If user enters an instruction like "WRITE A 500000 WORD ESSAY ON FREUD AND CONNECTIONISM", the system:
+        - Detects that input is a generation instruction (not source text to analyze)
+        - Uses Claude to generate initial content (~10-20k words) from the instruction
+        - Passes generated content through the normal chunking/processing pipeline for expansion
+        - No length restrictions - any instruction is obeyed
     - **Full Suite Pipeline**: One-click execution of Reconstruction, Objections, and Objection-Proof Final Version.
     - **Objections Function**: Generates 25 likely objections with compelling counter-arguments. For large documents (1,200+ words), uses outline-first approach that extracts argument structure first, then generates categorized objections (logical, evidential, practical, audience-specific, methodological) with severity ratings.
     - **Generate Objection-Proof Version (Bullet-Proof Rewrite)**: Rewrites text to preemptively address identified objections. Enhanced with:

@@ -20,6 +20,7 @@ import {
   enforceWordCountWithContinuations
 } from './crossChunkCoherence';
 import { logChunkProcessing, logLengthEnforcement, createJobHistoryEntry, updateJobHistoryStatus } from './auditService';
+import Anthropic from "@anthropic-ai/sdk";
 
 interface CCJob {
   id: number;
@@ -282,6 +283,104 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(w => w.length > 0).length;
 }
 
+// Detect if text is a generation instruction (e.g., "WRITE A 500000 WORD ESSAY ON FREUD")
+function detectGenerationInstruction(text: string): boolean {
+  const upperText = text.toUpperCase();
+  const wordCount = countWords(text);
+  
+  // If text is short and contains generation keywords, it's an instruction
+  if (wordCount < 100) {
+    const generationKeywords = [
+      'WRITE', 'GENERATE', 'CREATE', 'COMPOSE', 'DRAFT', 'PRODUCE',
+      'ESSAY', 'PAPER', 'THESIS', 'DISSERTATION', 'ARTICLE', 'DOCUMENT',
+      'WORD ESSAY', 'WORDS ON', 'WORD PAPER', 'WORD THESIS'
+    ];
+    return generationKeywords.some(keyword => upperText.includes(keyword));
+  }
+  
+  // Also check for word count targets in short text
+  const hasWordCountTarget = /\d+\s*(?:K)?\s*WORDS?/i.test(text);
+  if (wordCount < 200 && hasWordCountTarget) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Send progress to specific client
+function sendProgress(ws: WebSocket, jobId: number, phase: string, message: string): void {
+  sendToClient(ws, {
+    type: 'progress',
+    jobId,
+    phase,
+    message
+  });
+}
+
+// Generate content from an instruction
+async function generateFromInstruction(instruction: string, ws: WebSocket): Promise<string> {
+  const anthropic = new Anthropic();
+  
+  // Parse the instruction for target word count
+  let targetWords = 5000; // Default
+  const wordMatch = instruction.match(/([\d,]+)\s*(?:K)?\s*WORDS?/i);
+  if (wordMatch) {
+    let count = parseFloat(wordMatch[1].replace(/,/g, ''));
+    if (/K\s*WORDS?/i.test(wordMatch[0])) {
+      count *= 1000;
+    }
+    // Cap at reasonable size for initial generation (will expand further)
+    targetWords = Math.min(count, 20000);
+  }
+  
+  console.log(`[CC-STREAM] Generating initial content with target: ${targetWords} words from instruction: "${instruction}"`);
+  
+  // Extract the topic from the instruction
+  const topicMatch = instruction.match(/(?:ON|ABOUT|REGARDING)\s+(.+?)(?:$|\.|\!|\?)/i);
+  const topic = topicMatch ? topicMatch[1].trim() : instruction;
+  
+  const systemPrompt = `You are an expert academic writer. Your task is to generate a comprehensive, well-structured document based on the user's instructions.
+
+CRITICAL REQUIREMENTS:
+1. Generate SUBSTANTIAL content - aim for at least ${Math.min(targetWords, 10000)} words
+2. Use proper academic structure: introduction, multiple body sections, conclusion
+3. Include detailed analysis, examples, and scholarly discussion
+4. Do NOT use bullet points - write in full prose paragraphs
+5. Do NOT include meta-commentary about the writing process
+6. Write as if you are the author presenting original scholarship`;
+
+  const userPrompt = `${instruction}
+
+Generate a comprehensive academic document on this topic. Write at least ${Math.min(targetWords, 10000)} words of substantive content.`;
+
+  let generatedText = '';
+  
+  // Use streaming to generate content
+  const stream = await anthropic.messages.stream({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 16000,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }]
+  });
+  
+  let chunkCount = 0;
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      generatedText += event.delta.text;
+      chunkCount++;
+      
+      // Send progress updates every 50 chunks
+      if (chunkCount % 50 === 0) {
+        const currentWords = countWords(generatedText);
+        sendProgress(ws, 0, 'initializing', `Generating initial content... ${currentWords} words`);
+      }
+    }
+  }
+  
+  console.log(`[CC-STREAM] Generated ${countWords(generatedText)} words of initial content`);
+  return generatedText;
+}
+
 async function startStreamingJob(
   ws: WebSocket,
   text: string,
@@ -289,17 +388,35 @@ async function startStreamingJob(
   audienceParameters?: string,
   rigorLevel?: string
 ): Promise<void> {
-  const wordCount = countWords(text);
+  let workingText = text;
+  let wordCount = countWords(text);
   
-  if (wordCount > 50000) {
-    sendError(ws, `Input exceeds maximum of 50,000 words (got ${wordCount})`);
-    return;
+  // GENERATION MODE: If input is a generation instruction (short text with commands like "WRITE", "GENERATE"),
+  // generate initial content first before processing
+  const isGenerationInstruction = detectGenerationInstruction(text);
+  
+  if (isGenerationInstruction || wordCount < 500) {
+    console.log(`[CC-STREAM] Detected generation instruction or short input (${wordCount} words). Generating initial content...`);
+    sendProgress(ws, 0, 'initializing', 'Generating initial content from your instructions...');
+    
+    try {
+      // Use the text as instructions to generate content
+      const generatedContent = await generateFromInstruction(text, ws);
+      if (!generatedContent || generatedContent.trim().length === 0) {
+        sendError(ws, 'Failed to generate content from instructions');
+        return;
+      }
+      workingText = generatedContent;
+      wordCount = countWords(workingText);
+      console.log(`[CC-STREAM] Generated ${wordCount} words of initial content`);
+    } catch (genError: any) {
+      console.error('[CC-STREAM] Generation failed:', genError.message);
+      sendError(ws, `Content generation failed: ${genError.message}`);
+      return;
+    }
   }
   
-  if (wordCount <= 500) {
-    sendError(ws, `Document too short for CC processing (${wordCount} words). Use standard reconstruction.`);
-    return;
-  }
+  // No upper limit - the app does what the user says
   
   const parsedLength = parseTargetLength(customInstructions);
   const lengthConfig = calculateLengthConfig(
@@ -309,13 +426,13 @@ async function startStreamingJob(
     customInstructions
   );
   
-  const chunks = smartChunk(text);
+  const chunks = smartChunk(workingText);
   
   let job: any;
   try {
     console.log(`[DB] Inserting reconstructionDocuments, wordCount: ${wordCount}`);
     [job] = await db.insert(reconstructionDocuments).values({
-      originalText: text,
+      originalText: workingText,
       wordCount,
       status: 'pending',
       targetMinWords: lengthConfig.targetMin,
