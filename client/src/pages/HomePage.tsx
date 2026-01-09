@@ -196,7 +196,7 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
   const [validatorTruthMapping, setValidatorTruthMapping] = useState<"false-to-true" | "true-to-true" | "true-to-false">("false-to-true");
   const [validatorMathTruthMapping, setValidatorMathTruthMapping] = useState<"make-true" | "keep-true" | "make-false">("make-true");
   const [validatorLiteralTruth, setValidatorLiteralTruth] = useState(false);
-  const [validatorLLMProvider, setValidatorLLMProvider] = useState<string>("zhi5"); // Default to ZHI 5
+  const [validatorLLMProvider, setValidatorLLMProvider] = useState<string>("zhi1"); // Default to ZHI 1
   
   // Streaming Output Modal State (for real-time expansion preview)
   const [streamingModalOpen, setStreamingModalOpen] = useState(false);
@@ -1128,7 +1128,20 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     
     // Use interpreted values
     const effectiveText = interpretation.effectiveText;
-    const effectiveInstructions = interpretation.effectiveInstructions;
+    let effectiveInstructions = interpretation.effectiveInstructions;
+    
+    // AUTO-EXPAND: If user provides small text with NO instructions, auto-expand to 5000 words
+    const inputWordCount = effectiveText.trim().split(/\s+/).filter(w => w).length;
+    const hasNoInstructions = effectiveInstructions.trim().length === 0;
+    const isSmallInput = inputWordCount > 0 && inputWordCount < 1000;
+    
+    if (isSmallInput && hasNoInstructions) {
+      effectiveInstructions = "EXPAND TO 5000 WORDS. Write a maximum coherence scholarly paper expanding on this input.";
+      toast({
+        title: "Auto-Expansion Enabled",
+        description: "Small input detected with no instructions - auto-expanding to 5000 word coherent paper.",
+      });
+    }
     
     // If only instructions provided (no effective text), use instructions as the "input" for processing
     const effectiveInputText = effectiveText.trim().length > 0 ? effectiveText : effectiveInstructions;
@@ -1626,7 +1639,21 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     
     // Use interpreted values
     const effectiveText = interpretation.effectiveText;
-    const effectiveInstructions = interpretation.effectiveInstructions;
+    let effectiveInstructions = interpretation.effectiveInstructions;
+    
+    // AUTO-EXPAND: If user provides small text with NO instructions, auto-expand to 5000 words
+    const inputWordCount = effectiveText.trim().split(/\s+/).filter(w => w).length;
+    const hasNoInstructions = effectiveInstructions.trim().length === 0;
+    const isSmallInput = inputWordCount > 0 && inputWordCount < 1000;
+    
+    if (isSmallInput && hasNoInstructions) {
+      effectiveInstructions = "EXPAND TO 5000 WORDS. Write a maximum coherence scholarly paper expanding on this input.";
+      toast({
+        title: "Auto-Expansion Enabled",
+        description: "Small input detected with no instructions - auto-expanding to 5000 word coherent paper.",
+      });
+    }
+    
     const isInstructionsOnly = effectiveText.trim().length === 0;
     
     // Use effective input for processing (text or instructions if text is empty)
@@ -1650,6 +1677,11 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     // Show the popup from the start so user can see progress
     setFullSuitePopupOpen(true);
     setFullSuiteActiveTab("reconstruction");
+    
+    // ALSO open the streaming modal for real-time text output
+    setStreamingContent("");
+    setStreamingStartNew(true);
+    setStreamingModalOpen(true);
 
     const allModes = ["reconstruction"];
     
