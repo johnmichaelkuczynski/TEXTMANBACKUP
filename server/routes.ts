@@ -3080,7 +3080,38 @@ Structural understanding is always understanding of relationships. Observational
           }
         }
         
-        if (fidelityLevel === 'conservative') {
+        // NEUROTEXT CRITICAL: If user provides custom instructions, FOLLOW THEM EXACTLY
+        // Custom instructions OVERRIDE default reconstruction behavior completely
+        if (customInstructions && customInstructions.trim().length > 0) {
+          systemPrompt = `You are an intelligent text transformer. You MUST follow the user's instructions EXACTLY.
+
+YOUR ONLY JOB: Do EXACTLY what the user instructs. Their instructions are your PRIMARY directive.
+
+If they say "turn into a one-man play" - produce a one-man play.
+If they say "expand to 5000 words" - produce 5000 words.
+If they say "write as a poem" - produce a poem.
+If they say "make into a legal document" - produce a legal document.
+
+DO NOT:
+- Add outlines or academic structure unless instructed
+- Produce academic format unless instructed
+- Add diagnosis or key terms unless instructed
+- Override the user's format with your own preferences
+
+CRITICAL: The user's instruction is LAW. Follow it exactly.
+CRITICAL: NO markdown formatting (no # headers, no ** bold **, no * italics *). Use plain text only.`;
+
+          userPrompt = `USER INSTRUCTION: ${customInstructions}
+
+INPUT TEXT TO TRANSFORM:
+${effectiveText}
+
+${targetDomain ? `Domain context: ${targetDomain}` : ''}
+
+EXECUTE THE USER'S INSTRUCTION EXACTLY. Produce output in the format they requested.`;
+
+          // Skip the default reconstruction prompts
+        } else if (fidelityLevel === 'conservative') {
           systemPrompt = `You are a RECONSTRUCTOR. You diagnose what's wrong with an argument, create a structured outline, and then fix THAT SPECIFIC THING.
 
 FIRST: DIAGNOSE the problem. The text has ONE of these issues:
