@@ -215,6 +215,20 @@ function Navigation() {
             <History className="h-4 w-4" />
             <span>Job History</span>
           </Link>
+          {/* OPEN PROGRESS POPUP - Always visible button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              // Dispatch custom event to open the streaming modal in HomePage
+              window.dispatchEvent(new CustomEvent('openProgressPopup'));
+            }}
+            className="flex items-center gap-2 text-primary-foreground bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-md"
+            data-testid="button-open-progress-popup-header"
+          >
+            <Eye className="h-4 w-4" />
+            <span>Open Progress Popup</span>
+          </Button>
           {activeJob && activeJob.isProcessing && (
             <Button
               variant="ghost"

@@ -388,6 +388,15 @@ DOES THE AUTHOR USE OTHER AUTHORS TO DEVELOP HIS IDEAS OR TO CLOAK HIS OWN LACK 
     setResumeJobData(null);
   };
   
+  // Listen for "Open Progress Popup" button click from header (App.tsx)
+  useEffect(() => {
+    const handleOpenProgressPopup = () => {
+      setStreamingModalOpen(true);
+    };
+    window.addEventListener('openProgressPopup', handleOpenProgressPopup);
+    return () => window.removeEventListener('openProgressPopup', handleOpenProgressPopup);
+  }, []);
+  
   // Check for loadProject data from Job History (for resume/modify)
   // Uses an interval to check for sessionStorage changes since navigation may not trigger remount
   useEffect(() => {
