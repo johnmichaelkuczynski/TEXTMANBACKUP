@@ -503,8 +503,15 @@ Continue writing NOW (${wordsToRequest} more words):`;
 
     const chunkContent = response.content[0].type === 'text' ? response.content[0].text : '';
     const chunkWordCount = chunkContent.trim().split(/\s+/).filter(w => w).length;
+    const stopReason = response.stop_reason;
     
-    console.log(`[Section ${sectionName}] Got ${chunkWordCount} words in chunk ${continuationAttempts + 1}`);
+    console.log(`[Section ${sectionName}] Got ${chunkWordCount} words in chunk ${continuationAttempts + 1} (stop_reason: ${stopReason})`);
+    
+    // If stopped due to max_tokens, we MUST continue even if we think we have enough
+    const wasTruncated = stopReason === 'max_tokens';
+    if (wasTruncated) {
+      console.log(`[Section ${sectionName}] Response was TRUNCATED - will continue generating`);
+    }
 
     // Log the generation
     await logLLMCall({
@@ -528,9 +535,15 @@ Continue writing NOW (${wordsToRequest} more words):`;
     currentWordCount = accumulatedContent.trim().split(/\s+/).filter(w => w).length;
     continuationAttempts++;
     
+    // CRITICAL: If response was truncated, force continue regardless of word count
+    // This handles cases where LLM stops mid-sentence
+    if (wasTruncated && currentWordCount < targetWordCount) {
+      console.log(`[Section ${sectionName}] Forcing continuation due to truncation`);
+    }
+    
     // Small delay to avoid rate limiting
-    if (currentWordCount < targetWordCount * 0.95) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    if (currentWordCount < targetWordCount * 0.95 || wasTruncated) {
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
   
@@ -564,20 +577,46 @@ export async function universalExpand(request: ExpansionRequest): Promise<Expans
   }
   
   // Build structure - either from parsed instructions or generate one
+  // CRITICAL: For large documents, create MORE sections with SMALLER word counts
+  // This ensures we don't hit token limits per-section
   let structure = parsed.structure;
   if (structure.length === 0) {
-    // Generate default academic structure
-    structure = [
-      { name: "ABSTRACT", wordCount: Math.round(targetWordCount * 0.015) },
-      { name: "INTRODUCTION", wordCount: Math.round(targetWordCount * 0.10) },
-      { name: "LITERATURE REVIEW", wordCount: Math.round(targetWordCount * 0.20) },
-      { name: "CHAPTER 1: CORE ARGUMENT", wordCount: Math.round(targetWordCount * 0.175) },
-      { name: "CHAPTER 2: SUPPORTING ANALYSIS", wordCount: Math.round(targetWordCount * 0.175) },
-      { name: "CHAPTER 3: CRITICAL EXAMINATION", wordCount: Math.round(targetWordCount * 0.175) },
-      { name: "CHAPTER 4: IMPLICATIONS", wordCount: Math.round(targetWordCount * 0.10) },
-      { name: "CONCLUSION", wordCount: Math.round(targetWordCount * 0.06) }
-    ];
-    console.log(`[Universal Expansion] Generated default structure with ${structure.length} sections`);
+    // For very large documents (50k+), create more granular structure
+    if (targetWordCount >= 50000) {
+      // 20 sections for 100k+ documents, each ~5000 words (manageable per section)
+      const sectionCount = Math.max(15, Math.ceil(targetWordCount / 6000));
+      const wordsPerSection = Math.round(targetWordCount / sectionCount);
+      structure = [
+        { name: "ABSTRACT", wordCount: Math.round(targetWordCount * 0.01) },
+        { name: "INTRODUCTION", wordCount: Math.round(targetWordCount * 0.05) },
+        { name: "LITERATURE REVIEW PART 1: HISTORICAL CONTEXT", wordCount: wordsPerSection },
+        { name: "LITERATURE REVIEW PART 2: CONTEMPORARY PERSPECTIVES", wordCount: wordsPerSection },
+        { name: "LITERATURE REVIEW PART 3: CRITICAL ANALYSIS", wordCount: wordsPerSection },
+        { name: "CHAPTER 1: FOUNDATIONAL CONCEPTS", wordCount: wordsPerSection },
+        { name: "CHAPTER 2: THEORETICAL FRAMEWORK", wordCount: wordsPerSection },
+        { name: "CHAPTER 3: CORE ARGUMENT DEVELOPMENT", wordCount: wordsPerSection },
+        { name: "CHAPTER 4: EVIDENCE AND ANALYSIS", wordCount: wordsPerSection },
+        { name: "CHAPTER 5: COUNTERARGUMENTS AND RESPONSES", wordCount: wordsPerSection },
+        { name: "CHAPTER 6: CASE STUDIES", wordCount: wordsPerSection },
+        { name: "CHAPTER 7: METHODOLOGICAL CONSIDERATIONS", wordCount: wordsPerSection },
+        { name: "CHAPTER 8: BROADER IMPLICATIONS", wordCount: wordsPerSection },
+        { name: "CHAPTER 9: FUTURE DIRECTIONS", wordCount: wordsPerSection },
+        { name: "CONCLUSION", wordCount: Math.round(targetWordCount * 0.04) }
+      ];
+    } else {
+      // Standard structure for smaller documents
+      structure = [
+        { name: "ABSTRACT", wordCount: Math.round(targetWordCount * 0.015) },
+        { name: "INTRODUCTION", wordCount: Math.round(targetWordCount * 0.10) },
+        { name: "LITERATURE REVIEW", wordCount: Math.round(targetWordCount * 0.20) },
+        { name: "CHAPTER 1: CORE ARGUMENT", wordCount: Math.round(targetWordCount * 0.175) },
+        { name: "CHAPTER 2: SUPPORTING ANALYSIS", wordCount: Math.round(targetWordCount * 0.175) },
+        { name: "CHAPTER 3: CRITICAL EXAMINATION", wordCount: Math.round(targetWordCount * 0.175) },
+        { name: "CHAPTER 4: IMPLICATIONS", wordCount: Math.round(targetWordCount * 0.10) },
+        { name: "CONCLUSION", wordCount: Math.round(targetWordCount * 0.06) }
+      ];
+    }
+    console.log(`[Universal Expansion] Generated structure with ${structure.length} sections for ${targetWordCount} word target`);
   } else {
     // Distribute remaining word count to sections without explicit counts
     const totalExplicit = structure.reduce((sum, s) => sum + s.wordCount, 0);
