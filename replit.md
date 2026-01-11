@@ -88,6 +88,22 @@ The application employs a monorepo structure, separating client and server compo
         - **NO HEDGING Rule**: Never use hedging language like "may", "might", "perhaps", "arguably"
         - **ZHI 1 Default**: Default LLM provider is now ZHI 1 (OpenAI)
 
+## Verified Milestones & Restore Points
+
+### 100,000 Word Generation - VERIFIED (Jan 11, 2026)
+**Commit: 171f8767958362824b719ddbf9456c79c2270461**
+- **Test Result**: 99,518 words generated (99.5% of 100k target)
+- **Generation Time**: 55 minutes
+- **Sections**: 15 complete chapters with proper structure
+- **Sample Output**: `100k_dissertation_FULL.txt` (763 KB)
+- **Database Storage**: All chunks saved to `coherence_chunks` table with document_id pattern `ue-{timestamp}-%`
+- **Key Fix**: Section allocation now sums exactly to 100% of target word count
+- **Extraction Method**: Query database by document_id prefix, join by chunk_index
+
+### 50,000 Word Generation - VERIFIED (Jan 2026)
+- **Test Results**: 49,319-50,471 words (98-101% accuracy)
+- **WebSocket Streaming**: Real-time progress updates via `/ws/cc-stream`
+
 ## External Dependencies
 - **AI Service Providers**: OpenAI API (GPT-4), Anthropic API (Claude), DeepSeek API, Perplexity AI, Grok API (xAI).
 - **Supporting Services**: Mathpix OCR, AssemblyAI, SendGrid, Google Custom Search, Stripe (for credit purchases), AnalyticPhilosophy.net Zhi API.
